@@ -58,10 +58,9 @@ void PairTTDamp::compute(int eflag, int vflag)
   double qi,qj,xtmp,ytmp,ztmp,delx,dely,delz,ecoul,fpair;
   double r,rsq,r2inv,rinv,factor_coul;
   int *ilist,*jlist,*numneigh,**firstneigh;
-  double factor_f,factor_e;
+  double qq, dEdr;
   int di,dj;
-  double beta, gamma, betaprime, gammaprime, gammatmp;
-  double dcoul;
+  double alpha, alphaprime, beta, gamma, betaprime, gammaprime, gammatmp;
 
   ecoul = 0.0;
   ev_init(eflag,vflag);
@@ -130,18 +129,20 @@ void PairTTDamp::compute(int eflag, int vflag)
         rinv = sqrt(r2inv);
 
         r = sqrt(rsq);
+        alpha = rinv;
+        alphaprime = -r2inv;
         beta = c[itype][jtype] * exp(-b[itype][jtype] * r);
         betaprime = -b[itype][jtype] * beta;
-        gamma = gammaprime = 0;
-        for (int k = 0; k < ntt[itype][jtype]; k++) {
-          gammatmp = pow(b[itype][jtype] * r, k - 1) / factorial[k];
-          gamma += gammatmp * b[itype][jtype] * r;
-          gammaprime += gammatmp * b[itype][jtype];
+        gamma = 1;
+        gammaprime = 0;
+        for (int k = 1; k < ntt[itype][jtype]; k++) {
+          gammatmp = pow(b[itype][jtype] * r, k - 1);
+          gamma += gammatmp * b[itype][jtype] * r / factorial[k];
+          gammaprime += gammatmp * b[itype][jtype] / factorial[k-1];
         }
-        dcoul = qqrd2e * qi * qj * scale[itype][jtype] * rinv;
-        factor_f = -(betaprime * gamma + beta * gammaprime) * factor_coul;
-        if (eflag) factor_e = beta * gamma * factor_coul;
-        fpair = factor_f * dcoul * r2inv;
+        qq = qqrd2e * qi * qj * scale[itype][jtype];
+        dEdr = -(alphaprime * beta * gamma + alpha * betaprime * gamma + alpha * beta * gammaprime) * qq;
+        fpair = -rinv * dEdr * factor_coul;
 
         f[i][0] += delx*fpair;
         f[i][1] += dely*fpair;
@@ -153,7 +154,7 @@ void PairTTDamp::compute(int eflag, int vflag)
         }
 
         if (eflag)
-          ecoul = factor_e * dcoul;
+          ecoul = alpha * beta * gamma * qq * factor_coul;
 
         if (evflag) ev_tally(i,j,nlocal,newton_pair,
                              0.0,ecoul,fpair,delx,dely,delz);
@@ -379,8 +380,8 @@ double PairTTDamp::single(int i, int j, int itype, int jtype,
                          double &fforce)
 {
   double r2inv,rinv,r,phicoul;
-  double qi,qj,factor_f,factor_e,dcoul,asr,exp_asr;
-  double beta, betaprime, gamma, gammaprime, gammatmp;
+  double qi,qj,dEdr,qq,asr,exp_asr;
+  double alpha, alphaprime, beta, betaprime, gamma, gammaprime, gammatmp;
   int di, dj;
 
   int *drudetype = fix_drude->drudetype;
@@ -412,19 +413,21 @@ double PairTTDamp::single(int i, int j, int itype, int jtype,
   if (rsq < cutsq[itype][jtype]) {
     rinv = sqrt(r2inv);
     r = sqrt(rsq);
+    alpha = rinv;
+    alphaprime = -r2inv;
     beta = c[itype][jtype] * exp(-b[itype][jtype] * r);
     betaprime = -b[itype][jtype] * beta;
-    gamma = gammaprime = 0;
-    for (int k = 0; k < ntt[itype][jtype]; k++) {
-      gammatmp = pow(b[itype][jtype] * r, k - 1) / factorial[k];
-      gamma += gammatmp * b[itype][jtype] * r;
-      gammaprime += gammatmp * b[itype][jtype];
+    gamma = 1;
+    gammaprime = 0;
+    for (int k = 1; k < ntt[itype][jtype]; k++) {
+      gammatmp = pow(b[itype][jtype] * r, k - 1);
+      gamma += gammatmp * b[itype][jtype] * r / factorial[k];
+      gammaprime += gammatmp * b[itype][jtype] / factorial[k-1];
     }
-    dcoul = force->qqrd2e * qi * qj * scale[itype][jtype] * rinv;
-    factor_f = -(betaprime * gamma + beta * gammaprime) * factor_coul;
-    fforce = factor_f * dcoul * r2inv;
-    factor_e = beta * gamma * factor_coul;
-    phicoul = factor_e * dcoul;
+    qq = force->qqrd2e * qi * qj * scale[itype][jtype];
+    dEdr = -(alphaprime * beta * gamma + alpha * betaprime * gamma + alpha * beta * gammaprime) * qq;
+    fforce = -rinv * dEdr * factor_coul;
+    phicoul = alpha * beta * gamma * qq * factor_coul;
   }
 
   return phicoul;
