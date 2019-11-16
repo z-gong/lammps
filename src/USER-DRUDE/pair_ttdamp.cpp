@@ -380,33 +380,35 @@ double PairTTDamp::single(int i, int j, int itype, int jtype,
                          double &fforce)
 {
   double r2inv,rinv,r,phicoul;
-  double qi,qj,dEdr,qq,asr,exp_asr;
+  double qi,qj,dEdr,qq;
   double alpha, alphaprime, beta, betaprime, gamma, gammaprime, gammatmp;
   int di, dj;
 
-  int *drudetype = fix_drude->drudetype;
-  tagint *drudeid = fix_drude->drudeid;
-  int *type = atom->type;
+  // Should not use fix_drude to determine Drude pairs in single() function
+  // It will not work
+
+//  int *drudetype = fix_drude->drudetype;
+//  tagint *drudeid = fix_drude->drudeid;
 
   // only on polar-nonpolar pair
-  if (drudetype[type[i]] == NOPOL_TYPE && drudetype[type[j]] == NOPOL_TYPE)
-    return 0.0;
-  if (drudetype[type[i]] != NOPOL_TYPE && drudetype[type[j]] != NOPOL_TYPE)
-    return 0.0;
+//  if (drudetype[itype] == NOPOL_TYPE && drudetype[jtype] == NOPOL_TYPE)
+//    return 0.0;
+//  if (drudetype[itype] != NOPOL_TYPE && drudetype[jtype] != NOPOL_TYPE)
+//    return 0.0;
 
   qi = atom->q[i];
   // get dq of the core via the drude charge
-  if (drudetype[type[i]] == CORE_TYPE) {
-    di = domain->closest_image(i, atom->map(drudeid[i]));
-    qi = -atom->q[di];
-  }
+//  if (drudetype[itype] == CORE_TYPE) {
+//    di = domain->closest_image(i, atom->map(drudeid[i]));
+//    qi = -atom->q[di];
+//  }
 
   qj = atom->q[j];
   // get dq of the core via the drude charge
-  if (drudetype[type[j]] == CORE_TYPE) {
-    dj = domain->closest_image(j, atom->map(drudeid[j]));
-    qj = -atom->q[dj];
-  }
+//  if (drudetype[jtype] == CORE_TYPE) {
+//    dj = domain->closest_image(j, atom->map(drudeid[j]));
+//    qj = -atom->q[dj];
+//  }
 
   r2inv = 1.0/rsq;
   fforce = phicoul = 0.0;
