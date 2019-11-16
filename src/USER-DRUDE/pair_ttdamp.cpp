@@ -135,10 +135,10 @@ void PairTTDamp::compute(int eflag, int vflag)
         betaprime = -b[itype][jtype] * beta;
         gamma = 1;
         gammaprime = 0;
-        for (int k = 1; k < ntt[itype][jtype]; k++) {
-          gammatmp = pow(b[itype][jtype] * r, k - 1);
-          gamma += gammatmp * b[itype][jtype] * r / factorial[k];
-          gammaprime += gammatmp * b[itype][jtype] / factorial[k-1];
+        for (int k = 1; k <= ntt[itype][jtype]; k++) {
+          gammatmp = pow(b[itype][jtype] * r, k - 1) / factorial[k];
+          gamma += gammatmp * b[itype][jtype] * r;
+          gammaprime += gammatmp * b[itype][jtype] * k;
         }
         qq = qqrd2e * qi * qj * scale[itype][jtype];
         dEdr = -(alphaprime * beta * gamma + alpha * betaprime * gamma + alpha * beta * gammaprime) * qq;
@@ -154,7 +154,7 @@ void PairTTDamp::compute(int eflag, int vflag)
         }
 
         if (eflag)
-          ecoul = alpha * beta * gamma * qq * factor_coul;
+          ecoul = -alpha * beta * gamma * qq * factor_coul;
 
         if (evflag) ev_tally(i,j,nlocal,newton_pair,
                              0.0,ecoul,fpair,delx,dely,delz);
@@ -201,7 +201,7 @@ void PairTTDamp::settings(int narg, char **arg)
 
   factorial.resize(n_global+1);
   factorial[0] = 1;
-  for (int i = 1; i < n_global; i++)
+  for (int i = 1; i <= n_global; i++)
     factorial[i] = i * factorial[i - 1];
 
   // reset cutoffs that have been explicitly set
@@ -421,15 +421,15 @@ double PairTTDamp::single(int i, int j, int itype, int jtype,
     betaprime = -b[itype][jtype] * beta;
     gamma = 1;
     gammaprime = 0;
-    for (int k = 1; k < ntt[itype][jtype]; k++) {
-      gammatmp = pow(b[itype][jtype] * r, k - 1);
-      gamma += gammatmp * b[itype][jtype] * r / factorial[k];
-      gammaprime += gammatmp * b[itype][jtype] / factorial[k-1];
+    for (int k = 1; k <= ntt[itype][jtype]; k++) {
+      gammatmp = pow(b[itype][jtype] * r, k - 1) / factorial[k];
+      gamma += gammatmp * b[itype][jtype] * r;
+      gammaprime += gammatmp * b[itype][jtype] * k;
     }
     qq = force->qqrd2e * qi * qj * scale[itype][jtype];
     dEdr = -(alphaprime * beta * gamma + alpha * betaprime * gamma + alpha * beta * gammaprime) * qq;
     fforce = -rinv * dEdr * factor_coul;
-    phicoul = alpha * beta * gamma * qq * factor_coul;
+    phicoul = -alpha * beta * gamma * qq * factor_coul;
   }
 
   return phicoul;
