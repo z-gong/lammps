@@ -43,8 +43,8 @@ class PairTTDamp: public Pair {
 
  protected:
   int n_global;
-  std::vector<int> factorial;
-//  int factorial[9] = {1, 1, 2, 6, 24, 120, 720, 5040, 40320};
+//  std::vector<int> factorial;
+  int factorial[9] = {1, 1, 2, 6, 24, 120, 720, 5040, 40320};
   double cut_global;
   double **cut,**scale;
   double **b,**c;

@@ -195,11 +195,13 @@ void PairTTDamp::settings(int narg, char **arg)
 
   n_global = force->inumeric(FLERR, arg[0]);
   cut_global = force->numeric(FLERR, arg[1]);
+  if (n_global>8)
+    error->all(FLERR, "Illegal settings for pair style ttdamp: n should not be larger than 8");
 
-  factorial.resize(n_global);
-  factorial[0] = 1;
-  for (int i = 1; i < n_global; i++)
-    factorial[i] = i * factorial[i - 1];
+//  factorial.resize(n_global+1);
+//  factorial[0] = 1;
+//  for (int i = 1; i < n_global; i++)
+//    factorial[i] = i * factorial[i - 1];
 
   // reset cutoffs that have been explicitly set
 
