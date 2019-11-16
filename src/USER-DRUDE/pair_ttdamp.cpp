@@ -44,6 +44,7 @@ PairTTDamp::~PairTTDamp()
     memory->destroy(cutsq);
     memory->destroy(b);
     memory->destroy(c);
+    memory->destroy(ntt);
     memory->destroy(cut);
     memory->destroy(scale);
   }
@@ -132,7 +133,7 @@ void PairTTDamp::compute(int eflag, int vflag)
         beta = c[itype][jtype] * exp(-b[itype][jtype] * r);
         betaprime = -b[itype][jtype] * beta;
         gamma = gammaprime = 0;
-        for (int k = 0; k < n[itype][jtype]; k++) {
+        for (int k = 0; k < ntt[itype][jtype]; k++) {
           gammatmp = pow(b[itype][jtype] * r, k - 1) / factorial[k];
           gamma += gammatmp * b[itype][jtype] * r;
           gammaprime += gammatmp * b[itype][jtype];
@@ -183,6 +184,7 @@ void PairTTDamp::allocate()
   memory->create(scale,n+1,n+1,"pair:scale");
   memory->create(b, n + 1, n + 1, "pair:b");
   memory->create(c, n + 1, n + 1, "pair:c");
+  memory->create(ntt, n + 1, n + 1, "pair:ntt");
 }
 
 /* ----------------------------------------------------------------------
@@ -195,13 +197,11 @@ void PairTTDamp::settings(int narg, char **arg)
 
   n_global = force->inumeric(FLERR, arg[0]);
   cut_global = force->numeric(FLERR, arg[1]);
-  if (n_global>8)
-    error->all(FLERR, "Illegal settings for pair style ttdamp: n should not be larger than 8");
 
-//  factorial.resize(n_global+1);
-//  factorial[0] = 1;
-//  for (int i = 1; i < n_global; i++)
-//    factorial[i] = i * factorial[i - 1];
+  factorial.resize(n_global+1);
+  factorial[0] = 1;
+  for (int i = 1; i < n_global; i++)
+    factorial[i] = i * factorial[i - 1];
 
   // reset cutoffs that have been explicitly set
 
@@ -210,7 +210,7 @@ void PairTTDamp::settings(int narg, char **arg)
     for (i = 1; i <= atom->ntypes; i++)
       for (j = i; j <= atom->ntypes; j++)
         if (setflag[i][j]) {
-            n[i][j] = n_global;
+            ntt[i][j] = n_global;
           cut[i][j] = cut_global;
         }
   }
@@ -245,7 +245,7 @@ void PairTTDamp::coeff(int narg, char **arg)
     for (int j = MAX(jlo,i); j <= jhi; j++) {
       b[i][j] = b_one;
       c[i][j] = c_one;
-      n[i][j] = n_one;
+      ntt[i][j] = n_one;
       cut[i][j] = cut_one;
       scale[i][j] = 1.0;
       setflag[i][j] = 1;
@@ -285,7 +285,7 @@ double PairTTDamp::init_one(int i, int j)
 
   b[j][i] = b[i][j];
   c[j][i] = c[i][j];
-  n[j][i] = n[i][j];
+  ntt[j][i] = ntt[i][j];
   scale[j][i] = scale[i][j];
 
   return cut[i][j];
@@ -306,7 +306,7 @@ void PairTTDamp::write_restart(FILE *fp)
       if (setflag[i][j]) {
         fwrite(&b[i][j], sizeof(double), 1, fp);
         fwrite(&c[i][j], sizeof(double), 1, fp);
-        fwrite(&n[i][j], sizeof(double), 1, fp);
+        fwrite(&ntt[i][j], sizeof(double), 1, fp);
         fwrite(&cut[i][j],sizeof(double),1,fp);
       }
     }
@@ -331,12 +331,12 @@ void PairTTDamp::read_restart(FILE *fp)
         if (me == 0) {
           fread(&b[i][j], sizeof(double), 1, fp);
           fread(&c[i][j], sizeof(double), 1, fp);
-          fread(&n[i][j], sizeof(double), 1, fp);
+          fread(&ntt[i][j], sizeof(double), 1, fp);
           fread(&cut[i][j],sizeof(double),1, fp);
           }
         MPI_Bcast(&b[i][j],  1, MPI_DOUBLE,0,world);
         MPI_Bcast(&c[i][j],  1, MPI_DOUBLE,0,world);
-        MPI_Bcast(&n[i][j],  1, MPI_DOUBLE,0,world);
+        MPI_Bcast(&ntt[i][j],  1, MPI_DOUBLE,0,world);
         MPI_Bcast(&cut[i][j],1, MPI_DOUBLE,0,world);
       }
     }
@@ -415,7 +415,7 @@ double PairTTDamp::single(int i, int j, int itype, int jtype,
     beta = c[itype][jtype] * exp(-b[itype][jtype] * r);
     betaprime = -b[itype][jtype] * beta;
     gamma = gammaprime = 0;
-    for (int k = 0; k < n[itype][jtype]; k++) {
+    for (int k = 0; k < ntt[itype][jtype]; k++) {
       gammatmp = pow(b[itype][jtype] * r, k - 1) / factorial[k];
       gamma += gammatmp * b[itype][jtype] * r;
       gammaprime += gammatmp * b[itype][jtype];
@@ -438,6 +438,6 @@ void *PairTTDamp::extract(const char *str, int &dim)
   if (strcmp(str,"scale") == 0) return (void *) scale;
   if (strcmp(str,"b") == 0) return (void *) b;
   if (strcmp(str,"c") == 0) return (void *) c;
-  if (strcmp(str,"n") == 0) return (void *) n;
+  if (strcmp(str,"ntt") == 0) return (void *) ntt;
   return NULL;
 }
