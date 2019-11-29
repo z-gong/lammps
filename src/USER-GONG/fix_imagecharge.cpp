@@ -26,22 +26,16 @@
 #include "memory.h"
 #include "comm.h"
 #include <vector>
-#include "stdlib.h"
+#include "kspace.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
-#define SMALL 1.0e-10
-
-enum {
-    TETHER, COUPLE
-};
-
 /* ---------------------------------------------------------------------- */
 
 FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
-        Fix(lmp, narg, arg),
-        group2(NULL) {
+    Fix(lmp, narg, arg),
+    group2(NULL) {
   scalar_flag = 0;
   vector_flag = 0;
   size_vector = 4;
@@ -64,9 +58,11 @@ FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
 
   z0 = force->numeric(FLERR, arg[4]);
 
-  memory->create(img_parent, atom->natoms + 1, "fix_imgq::img_parent");
-  memory->create(xyz, (atom->natoms + 1) * 3, "fix_imgq::xyz");
-  memory->create(xyz_local, (atom->natoms + 1) * 3, "fix_imgq::xyz_local");
+  memory->create(img_parent, atom->natoms + 1, "fix_image_charge::img_parent");
+  memory->create(xyz, (atom->natoms + 1) * 3, "fix_image_charge::xyz");
+  memory->create(xyz_local, (atom->natoms + 1) * 3, "fix_image_charge::xyz_local");
+  memory->create(charge, atom->natoms + 1, "fix_image_charge::charge");
+  memory->create(charge_local, atom->natoms + 1, "fix_image_charge::charge_local");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -76,6 +72,8 @@ FixImageCharge::~FixImageCharge() {
   memory->destroy(img_parent);
   memory->destroy(xyz);
   memory->destroy(xyz_local);
+  memory->destroy(charge);
+  memory->destroy(charge_local);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -91,6 +89,9 @@ int FixImageCharge::setmask() {
 
 void FixImageCharge::init() {
   build_img_parents();
+  // assume fixed charge model. Only assign image charges once
+  assign_img_charges();
+  update_img_positions();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -134,14 +135,11 @@ void FixImageCharge::build_img_parents() {
     if (flag_parents[i] == 1) tag_parents.push_back(i);
     if (flag_imgs[i] == 1) tag_imgs.push_back(i);
   }
-  // print parent atoms and image charges
-  if (comm->me==0) {
-    for (int tag: tag_parents) {
-      printf("%d ", tag);
-    }
-    printf("\n");
-    for (int tag: tag_imgs) {
-      printf("%d ", tag);
+  // print parent atoms and image particles
+  if (comm->me == 0) {
+    printf("Pairs of parent and image atoms\n  ");
+    for (int i = 0; i < tag_parents.size(); i++) {
+      printf("%d %d; ", tag_parents[i], tag_imgs[i]);
     }
     printf("\n");
   }
@@ -149,13 +147,40 @@ void FixImageCharge::build_img_parents() {
   for (int i = 0; i < tag_parents.size(); i++) {
     img_parent[tag_imgs[i]] = tag_parents[i];
   }
+}
 
-  // set xyz array to zero. not really necessary
+/* ---------------------------------------------------------------------- */
+
+void FixImageCharge::assign_img_charges() {
+  int tag, tag_parent;
+  int *mask = atom->mask;
+  double *q = atom->q;
+
+  // initialize the local charge array
   for (int i = 1; i < atom->natoms + 1; i++) {
-    xyz_local[3 * i + 0] = 0.0;
-    xyz_local[3 * i + 1] = 0.0;
-    xyz_local[3 * i + 2] = 0.0;
+    charge_local[i] = 0.0;
   }
+
+  // store the charge of parent atoms
+  for (int ii = 0; ii < atom->nlocal; ii++) {
+    if (mask[ii] & groupbit) {
+      tag = atom->tag[ii];
+      charge_local[tag] = q[ii];
+    }
+  }
+  MPI_Allreduce(charge_local, charge, atom->natoms + 1, MPI_DOUBLE, MPI_SUM, world);
+
+  // update the charge of image particles based on their parents
+  for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
+    tag = atom->tag[ii];
+    tag_parent = img_parent[tag];
+    if (tag_parent != -1) {
+      q[ii] = -charge[tag_parent];
+    }
+  }
+
+  // reset KSpace charges
+  if (force->kspace) force->kspace->qsum_qsq();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -165,33 +190,40 @@ void FixImageCharge::update_img_positions() {
   int *mask = atom->mask;
   double **x = atom->x;
 
+  // initialize the local xyz array.
+  // actually can be put in pre_neighbour(). Put here for clarity
+  for (int i = 1; i < atom->natoms + 1; i++) {
+    xyz_local[3 * i + 0] = 0.0;
+    xyz_local[3 * i + 1] = 0.0;
+    xyz_local[3 * i + 2] = 0.0;
+  }
+
   // store the xyz of parent atoms
   for (int ii = 0; ii < atom->nlocal; ii++) {
-    tag = atom->tag[ii];
     if (mask[ii] & groupbit) {
+      tag = atom->tag[ii];
       xyz_local[3 * tag + 0] = x[ii][0];
       xyz_local[3 * tag + 1] = x[ii][1];
       xyz_local[3 * tag + 2] = x[ii][2];
-//      printf("%d %d %d, %f %f %f\n", comm->me, i, tag, x_tmp[tag], y_tmp[tag], z_tmp[tag]);
+//      printf("%d %d %d, %f %f %f\n", comm->me, ii, tag, xyz_local[3*tag], xyz_local[3*tag+1], xyz_local[3*tag+2]);
     }
   }
   MPI_Allreduce(xyz_local, xyz, (atom->natoms + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
 
 //  if (comm->me == 0){
 //    for (int i = 1; i < atom->natoms + 1; i++) {
-//      printf("%d %f %f %f\n", i, x_active[i], y_active[i], z_active[i]);
+//      printf("%d %d, %f %f %f\n", i, img_parent[i], xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]);
 //    }
 //  }
 
-  // update the xyz of image charges
-  for (int i = 0; i < atom->nlocal + atom->nghost; i++) {
-    tag = atom->tag[i];
+  // update the xyz of image particles
+  for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
+    tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
-//      printf("%d %d %d, %f %f %f\n",i, tagimg, tag, x_active[tag], y_active[tag], z_active[tag]);
-      x[i][0] = xyz[3 * tag_parent];
-      x[i][1] = xyz[3 * tag_parent + 1];
-      x[i][2] = 2 * z0 - xyz[3 * tag_parent + 2];
+      x[ii][0] = xyz[3 * tag_parent + 0];
+      x[ii][1] = xyz[3 * tag_parent + 1];
+      x[ii][2] = 2 * z0 - xyz[3 * tag_parent + 2];
     }
   }
 }
