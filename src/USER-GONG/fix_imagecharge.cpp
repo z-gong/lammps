@@ -93,13 +93,13 @@ void FixImageCharge::init() {
   build_img_parents();
   // assume fixed charge model. Only assign image charges once
   assign_img_charges();
-  update_img_positions(true);
+  update_img_positions(false);
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixImageCharge::initial_integrate(int /*vflag*/) {
-  update_img_positions(false);
+  update_img_positions(true);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -167,7 +167,7 @@ void FixImageCharge::assign_img_charges() {
   MPI_Allreduce(charge_local, charge, atom->natoms + 1, MPI_DOUBLE, MPI_SUM, world);
 
   // update the charge of image particles based on their parents
-  for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
+  for (int ii = 0; ii < atom->nlocal; ii++) {
     tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
@@ -181,7 +181,7 @@ void FixImageCharge::assign_img_charges() {
 
 /* ---------------------------------------------------------------------- */
 
-void FixImageCharge::update_img_positions(bool into_box= false) {
+void FixImageCharge::update_img_positions(bool remap = true) {
   int tag, tag_parent;
   int *mask = atom->mask;
   double **x = atom->x;
@@ -213,7 +213,7 @@ void FixImageCharge::update_img_positions(bool into_box= false) {
 //  }
 
   // update the xyz of image particles
-  for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
+  for (int ii = 0; ii < atom->nlocal; ii++) {
     tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
@@ -223,9 +223,8 @@ void FixImageCharge::update_img_positions(bool into_box= false) {
       x[ii][0] = xyz[tag_parent][0];
       x[ii][1] = xyz[tag_parent][1];
       x[ii][2] = 2 * z0 - xyz[tag_parent][2];
-      // at the beginning, force the position of image charge to be inside the box
-      if (into_box) domain->remap(x[ii]);
-      else domain->remap_near(x[ii], xyz_tmp);
+      // make sure the new coordinate is in the correct periodic box
+      if (remap) domain->remap_near(x[ii], xyz_tmp);
 //      printf("old and new xyz: %d %d, %f %f %f, %f %f %f\n", tag, tag_parent,
 //              xyz_tmp[0], xyz_tmp[1], xyz_tmp[2], x[ii][0], x[ii][1], x[ii][2]);
     }
