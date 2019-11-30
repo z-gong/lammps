@@ -224,6 +224,8 @@ void FixImageCharge::update_img_positions() {
       x[ii][1] = xyz[tag_parent][1];
       x[ii][2] = 2 * z0 - xyz[tag_parent][2];
       domain->remap_near(x[ii], xyz_tmp);
+//      printf("ERORR: %d %d, %f %f %f, %f %f %f\n", tag, tag_parent,
+//              xyz_tmp[0], xyz_tmp[1], xyz_tmp[2], x[ii][0], x[ii][1], x[ii][2]);
     }
   }
 }
