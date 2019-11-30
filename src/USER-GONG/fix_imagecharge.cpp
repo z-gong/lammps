@@ -27,6 +27,7 @@
 #include "comm.h"
 #include <vector>
 #include "kspace.h"
+#include "domain.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -59,8 +60,9 @@ FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
   z0 = force->numeric(FLERR, arg[4]);
 
   memory->create(img_parent, atom->natoms + 1, "fix_image_charge::img_parent");
-  memory->create(xyz, (atom->natoms + 1) * 3, "fix_image_charge::xyz");
-  memory->create(xyz_local, (atom->natoms + 1) * 3, "fix_image_charge::xyz_local");
+  memory->create(xyz, atom->natoms + 1, 3, "fix_image_charge::xyz");
+  memory->create(xyz_local, atom->natoms + 1, 3, "fix_image_charge::xyz_local");
+  memory->create(xyz_tmp, 3, "fix_image_charge::xyz_tmp");
   memory->create(charge, atom->natoms + 1, "fix_image_charge::charge");
   memory->create(charge_local, atom->natoms + 1, "fix_image_charge::charge_local");
 }
@@ -72,6 +74,7 @@ FixImageCharge::~FixImageCharge() {
   memory->destroy(img_parent);
   memory->destroy(xyz);
   memory->destroy(xyz_local);
+  memory->destroy(xyz_tmp);
   memory->destroy(charge);
   memory->destroy(charge_local);
 }
@@ -80,8 +83,7 @@ FixImageCharge::~FixImageCharge() {
 
 int FixImageCharge::setmask() {
   int mask = 0;
-  mask |= PRE_FORCE;
-  mask |= MIN_PRE_FORCE;
+  mask |= INITIAL_INTEGRATE;
   return mask;
 }
 
@@ -96,13 +98,7 @@ void FixImageCharge::init() {
 
 /* ---------------------------------------------------------------------- */
 
-void FixImageCharge::pre_force(int /*vflag*/) {
-  update_img_positions();
-}
-
-/* ---------------------------------------------------------------------- */
-
-void FixImageCharge::min_pre_force(int /*vflag*/) {
+void FixImageCharge::initial_integrate(int /*vflag*/) {
   update_img_positions();
 }
 
@@ -193,18 +189,18 @@ void FixImageCharge::update_img_positions() {
   // initialize the local xyz array.
   // actually can be put in pre_neighbour(). Put here for clarity
   for (int i = 1; i < atom->natoms + 1; i++) {
-    xyz_local[3 * i + 0] = 0.0;
-    xyz_local[3 * i + 1] = 0.0;
-    xyz_local[3 * i + 2] = 0.0;
+    xyz_local[i][0] = 0.0;
+    xyz_local[i][1] = 0.0;
+    xyz_local[i][2] = 0.0;
   }
 
   // store the xyz of parent atoms
   for (int ii = 0; ii < atom->nlocal; ii++) {
     if (mask[ii] & groupbit) {
       tag = atom->tag[ii];
-      xyz_local[3 * tag + 0] = x[ii][0];
-      xyz_local[3 * tag + 1] = x[ii][1];
-      xyz_local[3 * tag + 2] = x[ii][2];
+      xyz_local[tag][0] = x[ii][0];
+      xyz_local[tag][1] = x[ii][1];
+      xyz_local[tag][2] = x[ii][2];
 //      printf("%d %d %d, %f %f %f\n", comm->me, ii, tag, xyz_local[3*tag], xyz_local[3*tag+1], xyz_local[3*tag+2]);
     }
   }
@@ -221,9 +217,13 @@ void FixImageCharge::update_img_positions() {
     tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
-      x[ii][0] = xyz[3 * tag_parent + 0];
-      x[ii][1] = xyz[3 * tag_parent + 1];
-      x[ii][2] = 2 * z0 - xyz[3 * tag_parent + 2];
+      xyz_tmp[0] = x[ii][0];
+      xyz_tmp[1] = x[ii][1];
+      xyz_tmp[2] = x[ii][2];
+      x[ii][0] = xyz[tag_parent][0];
+      x[ii][1] = xyz[tag_parent][1];
+      x[ii][2] = 2 * z0 - xyz[tag_parent][2];
+      domain->remap_near(x[ii], xyz_tmp);
     }
   }
 }

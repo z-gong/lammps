@@ -30,8 +30,7 @@ class FixImageCharge : public Fix {
   ~FixImageCharge();
   int setmask();
   void init();
-  void pre_force(int);
-  void min_pre_force(int);
+  void initial_integrate(int);
 
  private:
   char *group2;
@@ -40,8 +39,9 @@ class FixImageCharge : public Fix {
 
   double z0;
   tagint * img_parent;
-  double * xyz;
-  double * xyz_local;
+  double ** xyz;
+  double ** xyz_local;
+  double * xyz_tmp;
   double * charge;
   double * charge_local;
   void build_img_parents();
