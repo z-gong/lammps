@@ -132,13 +132,13 @@ void FixImageCharge::build_img_parents() {
     if (flag_imgs[i] == 1) tag_imgs.push_back(i);
   }
   // print parent atoms and image particles
-  if (comm->me == 0) {
-    printf("Pairs of parent and image atoms\n  ");
-    for (int i = 0; i < tag_parents.size(); i++) {
-      printf("%d %d; ", tag_parents[i], tag_imgs[i]);
-    }
-    printf("\n");
-  }
+//  if (comm->me == 0) {
+//    printf("Pairs of parent and image atoms\n  ");
+//    for (int i = 0; i < tag_parents.size(); i++) {
+//      printf("%d %d; ", tag_parents[i], tag_imgs[i]);
+//    }
+//    printf("\n");
+//  }
 
   for (int i = 0; i < tag_parents.size(); i++) {
     img_parent[tag_imgs[i]] = tag_parents[i];
@@ -204,7 +204,7 @@ void FixImageCharge::update_img_positions() {
 //      printf("%d %d %d, %f %f %f\n", comm->me, ii, tag, xyz_local[3*tag], xyz_local[3*tag+1], xyz_local[3*tag+2]);
     }
   }
-  MPI_Allreduce(xyz_local, xyz, (atom->natoms + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(*xyz_local, *xyz, (atom->natoms + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
 
 //  if (comm->me == 0){
 //    for (int i = 1; i < atom->natoms + 1; i++) {
