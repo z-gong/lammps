@@ -39,27 +39,32 @@ variable elec equal ecoul+elong
 
 velocity all create ${TK} 12345
 
-group active id 1:12
+group real id 1:12
 group img id 13:24
 
-fix wallhi active wall/harmonic zhi  30 100 0  2 pbc yes
-fix walllo active wall/harmonic zlo -30 100 0 32 pbc yes
+fix wallhi real wall/harmonic zhi  30 100 0  2 pbc yes
+fix walllo real wall/harmonic zlo -30 100 0 32 pbc yes
 
-fix 1 active imagecharge img 0
-fix 2 img setforce 0 0 0
-
-#fix TPSTAT active langevin ${TK} ${TK} 100 123456
-#fix NVE active nve
-fix TPSTAT active nvt temp ${TK} ${TK} 100
-compute t active temp
-
+compute t real temp
 thermo_style custom step c_t press pe evdwl v_elec
 thermo 100
 
 dump TRAJ all atom 100 dump.lammpstrj
 dump_modify TRAJ sort id
 
-dump TRAJ2 all custom 100 dump.ltrj id mol type element q xu yu zu
+dump TRAJ2 all custom 100 dump.custom.lammpstrj id mol type element q xu yu zu
 dump_modify TRAJ2 sort id element H O C H
 
-run 10000
+run 0
+run 0
+fix imgq real imagecharge img 0
+
+fix TPSTAT real nvt temp ${TK} ${TK} 100
+
+run 1000
+#unfix imgq
+run 0
+#fix imgq real imagecharge img 0
+run 1000
+unfix imgq
+run 0

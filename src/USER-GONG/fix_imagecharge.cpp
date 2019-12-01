@@ -83,7 +83,8 @@ FixImageCharge::~FixImageCharge() {
 
 int FixImageCharge::setmask() {
   int mask = 0;
-  mask |= INITIAL_INTEGRATE;
+  mask |= PRE_EXCHANGE;
+  mask |= PRE_FORCE;
   return mask;
 }
 
@@ -93,12 +94,18 @@ void FixImageCharge::init() {
   build_img_parents();
   // assume fixed charge model. Only assign image charges once
   assign_img_charges();
-  update_img_positions(false);
+  update_img_positions(true);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixImageCharge::initial_integrate(int /*vflag*/) {
+void FixImageCharge::pre_exchange(int /*vflag*/) {
+  update_img_positions(true);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixImageCharge::pre_force(int /*vflag*/) {
   update_img_positions(true);
 }
 
@@ -225,8 +232,9 @@ void FixImageCharge::update_img_positions(bool remap = true) {
       x[ii][2] = 2 * z0 - xyz[tag_parent][2];
       // make sure the new coordinate is in the correct periodic box
       if (remap) domain->remap_near(x[ii], xyz_tmp);
-//      printf("old and new xyz: %d %d, %f %f %f, %f %f %f\n", tag, tag_parent,
-//              xyz_tmp[0], xyz_tmp[1], xyz_tmp[2], x[ii][0], x[ii][1], x[ii][2]);
+//      if (abs(x[ii][0] - xyz_tmp[0]) > 0.01 or abs(x[ii][1] - xyz_tmp[1]) > 0.01 or abs(x[ii][2] - xyz_tmp[2]) > 0.01)
+//        printf("old and new xyz: %d %d, %f %f %f, %f %f %f\n", tag, tag_parent,
+//               xyz_tmp[0], xyz_tmp[1], xyz_tmp[2], x[ii][0], x[ii][1], x[ii][2]);
     }
   }
 }

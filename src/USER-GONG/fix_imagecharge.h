@@ -30,7 +30,8 @@ class FixImageCharge : public Fix {
   ~FixImageCharge();
   int setmask();
   void init();
-  void initial_integrate(int);
+  void pre_exchange(int);
+  void pre_force(int);
 
  private:
   char *group2;
