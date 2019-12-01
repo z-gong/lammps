@@ -1,0 +1,65 @@
+# created by fftool
+
+units real
+boundary p p p
+
+atom_style full
+bond_style harmonic
+angle_style harmonic
+dihedral_style opls
+
+special_bonds lj/coul 0.0 0.0 0.5
+
+pair_style lj/cut/coul/cut 12.0
+pair_modify mix geometric tail yes
+#kspace_style pppm 1.0e-5
+
+read_data data.lmp extra/special/per/atom 99
+# read_restart restart1.lmp
+
+pair_coeff    1    1     0.000000     2.420000  # Hw Hw
+pair_coeff    2    2     0.155425     3.165500  # Ow Ow
+pair_coeff    3    3     0.000000     1.550000  # CA CA
+pair_coeff    4    4     0.000000     1.420000  # HA HA
+
+# thermo_style custom step press pe evdwl ecoul elong emol
+# thermo 10
+# minimize 1.0e-4 1.0e-6 1000 1000
+# write_data data.em.lmp
+# reset_timestep 0
+
+#fix SHAKE all shake 0.0001 20 0 b 1 3
+#fix ICECUBE all momentum 100 linear 1 1 1
+
+timestep 1
+
+variable TK equal 600.0
+variable PBAR equal 1.0
+variable elec equal ecoul+elong
+
+velocity all create ${TK} 12345
+
+group active id 1:12
+group img id 13:24
+
+fix wallhi active wall/harmonic zhi  30 100 0  2 pbc yes
+fix walllo active wall/harmonic zlo -30 100 0 32 pbc yes
+
+fix 1 active imagecharge img 0
+fix 2 img setforce 0 0 0
+
+#fix TPSTAT active langevin ${TK} ${TK} 100 123456
+#fix NVE active nve
+fix TPSTAT active nvt temp ${TK} ${TK} 100
+compute t active temp
+
+thermo_style custom step c_t press pe evdwl v_elec
+thermo 100
+
+dump TRAJ all atom 100 dump.lammpstrj
+dump_modify TRAJ sort id
+
+dump TRAJ2 all custom 100 dump.ltrj id mol type element q xu yu zu
+dump_modify TRAJ2 sort id element H O C H
+
+run 10000
