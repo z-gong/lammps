@@ -42,12 +42,13 @@ class FixImageCharge : public Fix {
   tagint * img_parent;
   double ** xyz;
   double ** xyz_local;
-  double * xyz_tmp;
+  double * xyz_img_tmp;
+  double * xyz_parent_tmp;
   double * charge;
   double * charge_local;
   void build_img_parents();
   void assign_img_charges();
-  void update_img_positions(bool);
+  void update_img_positions();
 };
 
 }

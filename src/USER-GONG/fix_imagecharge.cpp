@@ -62,7 +62,8 @@ FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
   memory->create(img_parent, atom->natoms + 1, "fix_image_charge::img_parent");
   memory->create(xyz, atom->natoms + 1, 3, "fix_image_charge::xyz");
   memory->create(xyz_local, atom->natoms + 1, 3, "fix_image_charge::xyz_local");
-  memory->create(xyz_tmp, 3, "fix_image_charge::xyz_tmp");
+  memory->create(xyz_img_tmp, 3, "fix_image_charge::xyz_img_tmp");
+  memory->create(xyz_parent_tmp, 3, "fix_image_charge::xyz_parent_tmp");
   memory->create(charge, atom->natoms + 1, "fix_image_charge::charge");
   memory->create(charge_local, atom->natoms + 1, "fix_image_charge::charge_local");
 }
@@ -74,7 +75,8 @@ FixImageCharge::~FixImageCharge() {
   memory->destroy(img_parent);
   memory->destroy(xyz);
   memory->destroy(xyz_local);
-  memory->destroy(xyz_tmp);
+  memory->destroy(xyz_img_tmp);
+  memory->destroy(xyz_parent_tmp);
   memory->destroy(charge);
   memory->destroy(charge_local);
 }
@@ -94,19 +96,19 @@ void FixImageCharge::init() {
   build_img_parents();
   // assume fixed charge model. Only assign image charges once
   assign_img_charges();
-  update_img_positions(true);
+  update_img_positions();
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixImageCharge::pre_exchange(int /*vflag*/) {
-  update_img_positions(true);
+  update_img_positions();
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixImageCharge::pre_force(int /*vflag*/) {
-  update_img_positions(true);
+  update_img_positions();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -188,7 +190,7 @@ void FixImageCharge::assign_img_charges() {
 
 /* ---------------------------------------------------------------------- */
 
-void FixImageCharge::update_img_positions(bool remap = true) {
+void FixImageCharge::update_img_positions() {
   int tag, tag_parent;
   int *mask = atom->mask;
   double **x = atom->x;
@@ -224,14 +226,19 @@ void FixImageCharge::update_img_positions(bool remap = true) {
     tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
-      xyz_tmp[0] = x[ii][0];
-      xyz_tmp[1] = x[ii][1];
-      xyz_tmp[2] = x[ii][2];
-      x[ii][0] = xyz[tag_parent][0];
-      x[ii][1] = xyz[tag_parent][1];
-      x[ii][2] = 2 * z0 - xyz[tag_parent][2];
-      // make sure the new coordinate is in the correct periodic box
-      if (remap) domain->remap_near(x[ii], xyz_tmp);
+      xyz_img_tmp[0] = x[ii][0];
+      xyz_img_tmp[1] = x[ii][1];
+      xyz_img_tmp[2] = x[ii][2];
+      xyz_parent_tmp[0] = xyz[tag_parent][0];
+      xyz_parent_tmp[1] = xyz[tag_parent][1];
+      xyz_parent_tmp[2] = xyz[tag_parent][2];
+      // map coordinates of parents back to main box, then calculate image coordinates
+      domain->remap(xyz_parent_tmp);
+      x[ii][0] = xyz_parent_tmp[0];
+      x[ii][1] = xyz_parent_tmp[1];
+      x[ii][2] = 2 * z0 - xyz_parent_tmp[2];
+      // make sure the new coordinate of images is in the correct periodic box
+       domain->remap_near(x[ii], xyz_img_tmp);
 //      if (abs(x[ii][0] - xyz_tmp[0]) > 0.01 or abs(x[ii][1] - xyz_tmp[1]) > 0.01 or abs(x[ii][2] - xyz_tmp[2]) > 0.01)
 //        printf("old and new xyz: %d %d, %f %f %f, %f %f %f\n", tag, tag_parent,
 //               xyz_tmp[0], xyz_tmp[1], xyz_tmp[2], x[ii][0], x[ii][1], x[ii][2]);
