@@ -43,7 +43,6 @@ class FixImageCharge : public Fix {
   double ** xyz;
   double ** xyz_local;
   double * xyz_img_tmp;
-  double * xyz_parent_tmp;
   double * charge;
   double * charge_local;
   void build_img_parents();
