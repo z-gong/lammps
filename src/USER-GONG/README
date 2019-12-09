@@ -1,0 +1,6 @@
+compute_inter -- compute the cohesive energy of bulk system
+fix_ppm, compute_ppm -- compute the viscosity using periodic perturbation method
+fix_imagecharge -- constant constant electrostatic potential simulation with image charge method
+fix_chargetransfer -- allow charge to transfer between atoms within a threshold of distance
+pair_mie_cut_soft -- soft core version of mie/cut potential for free energy calculation
+fix_conp -- constant electrostatic potential simulation with Siepmann & Spirk's method https://github.com/zhenxingwang/lammps-conp
