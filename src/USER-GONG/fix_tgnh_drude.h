@@ -146,13 +146,11 @@ class FixTGNHDrude : public Fix {
 
   class FixDrude * fix_drude;
   int n_mol, n_atom, n_drude;
-  double* mol_masses;
-  double* mol_inv_masses;
+  double *mass_mol;
   double dof_mol, dof_int, dof_drude;
-  void mass_compute();
-  void dof_compute();
+  void setup_mol_mass_dof();
   double **v_mol, **v_mol_tmp;
-  void temp_compute();
+  void compute_temp_mol_int_drude();
   double t_mol, t_int, t_drude;
   double ke2_mol, ke2_int, ke2_drude;
   double ke2target_mol, ke2target_int, ke2target_drude;

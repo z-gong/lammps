@@ -482,10 +482,9 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
 
   if (tstat_flag) {
     int ich;
+
     etaint = new double[mtchain];
-
-    // add one extra dummy thermostat, set to zero
-
+    // add one extra dummy thermostat for eta_dot, set to zero
     etaint_dot = new double[mtchain+1];
     etaint_dot[mtchain] = 0.0;
     etaint_dotdot = new double[mtchain];
@@ -496,6 +495,8 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
     size_vector += 2*2*mtchain;
 
     etamol = new double[mtchain];
+    // add one extra dummy thermostat for eta_dot, set to zero
+    etamol_dot = new double[mtchain+1];
     etamol_dot[mtchain] = 0.0;
     etamol_dotdot = new double[mtchain];
     for (ich = 0; ich < mtchain; ich++) {
@@ -504,6 +505,7 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
     etamol_mass = new double[mtchain];
 
     etadrude = new double[mtchain];
+    // add one extra dummy thermostat for eta_dot, set to zero
     etadrude_dot = new double[mtchain+1];
     etadrude_dot[mtchain] = 0.0;
     etadrude_dotdot = new double[mtchain];
@@ -728,48 +730,42 @@ void FixTGNHDrude::init()
     for (int i = 0; i < modify->nfix; i++)
       if (modify->fix[i]->rigid_flag) rfix[nrigid++] = i;
   }
-
-  mass_compute();
-  dof_compute();
 }
 
-void FixTGNHDrude::mass_compute() {
+/* ----------------------------------------------------------------------
+   compute T,P before integrator starts
+------------------------------------------------------------------------- */
+
+void FixTGNHDrude::setup_mol_mass_dof() {
   double *mass = atom->mass;
   int *molecule = atom->molecule;
   int *type = atom->type;
   int *drudetype = fix_drude->drudetype;
 
-  tagint molid, molid_max;
-
+  tagint id_mol = -1;
   for (int i=0; i< atom->nlocal; i++){
     if (drudetype[type[i]] == DRUDE_TYPE)
       n_drude += 1;
     else
       n_atom += 1;
-    molid= molecule[i];
+    id_mol = std::max(id_mol, molecule[i]);
   }
-  MPI_Allreduce(&molid, &molid_max, 1, MPI_LMP_TAGINT, MPI_MAX, world);
-  n_mol = molid_max + 1;
+  MPI_Allreduce(&id_mol, &n_mol, 1, MPI_LMP_TAGINT, MPI_MAX, world);
 
-  mol_masses = new double[n_mol];
-  mol_inv_masses = new double[n_mol];
-  auto* mass_tmp = new double[n_mol];
-  memset(mass_tmp, 0, sizeof(double) * n_mol);
+  // length of v_mol set to n_mol+1, so that the subscript start from 1, we can call v_mol[n_mol]
+  memory->create(v_mol, n_mol+1, 3, "fix_tgnh_drude::v_mol");
+  memory->create(v_mol_tmp, n_mol+1, 3, "fix_tgnh_drude::v_mol_tmp");
+  memory->create(mass_mol, n_mol + 1, "fix_tgnh_drude::mass_mol");
+
+  auto* mass_tmp = new double[n_mol+1];
+  memset(mass_tmp, 0, sizeof(double) * (n_mol+1));
   for (int i = 0; i < atom->nlocal; i++) {
-    molid = molecule[i];
-    mass_tmp[molid] += mass[i];
+    id_mol = molecule[i];
+    mass_tmp[id_mol] += mass[type[i]];
   }
-  MPI_Allreduce(mass_tmp, mol_masses, n_mol, MPI_DOUBLE, MPI_SUM, world);
-  for (int i=0; i< n_mol; i++)
-    mol_inv_masses[i] = 1.0 / mol_masses[i];
+  MPI_Allreduce(mass_tmp, mass_mol, n_mol + 1, MPI_DOUBLE, MPI_SUM, world);
 
-  memory->create(v_mol, n_mol, 3, "fix_tgnh_drude::v_mol");
-  memory->create(v_mol_tmp, n_mol, 3, "fix_tgnh_drude::v_mol_tmp");
-}
-
-void FixTGNHDrude::dof_compute(){
-  // tdof needed by compute_temp_target()
-
+  // DOFs
   t_drude = 1.0;
   t_current = temperature->compute_scalar();
   _tdof = temperature->dof;
@@ -778,12 +774,9 @@ void FixTGNHDrude::dof_compute(){
   dof_int = _tdof - dof_mol - dof_drude;
 }
 
-/* ----------------------------------------------------------------------
-   compute T,P before integrator starts
-------------------------------------------------------------------------- */
-
 void FixTGNHDrude::setup(int /*vflag*/)
 {
+  setup_mol_mass_dof();
   // t_target is needed by NVT and NPT in compute_scalar()
   // If no thermostat or using fix nphug,
   // t_target must be defined by other means.
@@ -1811,7 +1804,7 @@ void *FixTGNHDrude::extract(const char *str, int &dim)
   return NULL;
 }
 
-void FixTGNHDrude::temp_compute() {
+void FixTGNHDrude::compute_temp_mol_int_drude() {
   double **v = atom->v;
   double *mass = atom->mass;
   int *molecule = atom->molecule;
@@ -1819,10 +1812,12 @@ void FixTGNHDrude::temp_compute() {
   int *mask = atom->mask;
   int *drudetype = fix_drude->drudetype;
   int *drudeid = fix_drude->drudeid;
+  int molid, ci, di;
+  double com_mass, red_mass, massci, massdi;
+  double vint, vcom, vrel;
 
-  int molid;
-
-  for (int i=0; i< n_mol; i++){
+  // the length of v_mol is n_mol+1
+  for (int i=0; i< n_mol+1; i++){
     for (int k=0; k < 3; k++){
       v_mol_tmp[i][k] = 0;
     }
@@ -1831,44 +1826,44 @@ void FixTGNHDrude::temp_compute() {
   for (int i=0;i<atom->nlocal; i++){
     if (mask[i] & groupbit){
       molid = molecule[i];
-      v_mol_tmp[molid][0] = v[i][0] * mass[i];
-      v_mol_tmp[molid][1] = v[i][1] * mass[i];
-      v_mol_tmp[molid][2] = v[i][2] * mass[i];
+      v_mol_tmp[molid][0] = v[i][0] * mass[type[i]];
+      v_mol_tmp[molid][1] = v[i][1] * mass[type[i]];
+      v_mol_tmp[molid][2] = v[i][2] * mass[type[i]];
     }
   }
-  MPI_Allreduce(*v_mol_tmp, *v_mol, n_mol*3, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(*v_mol_tmp, *v_mol, (n_mol+1)*3, MPI_DOUBLE, MPI_SUM, world);
+
   ke2_mol = 0;
-  for (int i = 0; i < n_mol; i++) {
-    v_mol[i][0] /= mol_masses[i];
-    v_mol[i][1] /= mol_masses[i];
-    v_mol[i][2] /= mol_masses[i];
-    ke2_mol += mol_masses[i] * (v_mol[i][0] * v_mol[i][0] + v_mol[i][1] * v_mol[i][1] + v_mol[i][2] * v_mol[i][2]);
+  for (int i = 1; i < n_mol+1; i++) {
+    for (int k=0; k<3; k++){
+      v_mol[i][k] /= mass_mol[i];
+      ke2_mol += mass_mol[i] * (v_mol[i][k] * v_mol[i][k]);
+    }
   }
   ke2_mol = ke2_mol * force->mvv2e;
   t_mol = ke2_mol / dof_mol / boltz;
 
   ke2_int = 0;
   ke2_drude = 0;
-  double vint, vcom, vrel;
-  double com_mass, red_mass;
-  int di;
   for (int i=0;i<atom->nlocal; i++){
     if (mask[i] & groupbit){
       molid = molecule[i];
       if (drudetype[type[i]] == NOPOL_TYPE){
         for (int k=0; k<3; k++) {
           vint = v[i][k] - v_mol[molid][k];
-          ke2_int += mass[i] * vint* vint;
+          ke2_int += mass[type[i]] * vint* vint;
         }
       }
       else if (drudetype[type[i]] == CORE_TYPE){
         di = domain->closest_image(i, atom->map(drudeid[i]));
-        com_mass = mass[i] + mass[di];
-        red_mass = mass[i] * mass[di] / com_mass;
+        massci = mass[type[i]];
+        massdi = mass[type[di]];
+        com_mass = massci + massdi;
+        red_mass = massci * massdi / com_mass;
         for (int k=0; k<3; k++){
           vrel = v[di][k] - v[i][k];
           ke2_drude += red_mass * vrel * vrel;
-          vcom = (mass[i] * v[i][k] + mass[di] * v[di][k]) / com_mass;
+          vcom = (massci * v[i][k] + massdi * v[di][k]) / com_mass;
           vint = vcom - v_mol[molid][k];
           ke2_int += com_mass * vint * vint;
         }
@@ -1887,7 +1882,7 @@ void FixTGNHDrude::temp_compute() {
 
 void FixTGNHDrude::nhc_temp_integrate()
 {
-  temp_compute();
+  compute_temp_mol_int_drude();
 
   // thermostat for molecular COM
   factor_eta_mol = get_scale_factor(etamol, etamol_dot, etamol_dotdot, etamol_mass, ke2_mol, ke2target_mol, t_target);
@@ -2147,17 +2142,16 @@ void FixTGNHDrude::nh_v_temp()
   int *drudetype = fix_drude->drudetype;
   int *drudeid = fix_drude->drudeid;
 
+  int molid, ci, di;
+  double com_mass, red_mass, massci, massdi;
   double vint, vcom, vrel;
-  double com_mass, red_mass;
-  int molid, di, ci;
 
-  double **v_mol_original;
-  memory->create(v_mol_original, n_mol, 3, "fix_tgnh_drude::v_mol_original");
-  std::copy(&v_mol[0][0], &v_mol[0][0]+n_mol * 3,&v_mol_original[0][0]);
+  // store the original velocity of v_mol to v_mol_tmp
+  std::copy(&v_mol[0][0], &v_mol[0][0] + (n_mol + 1) * 3, &v_mol_tmp[0][0]);
 
   if (which == NOBIAS) {
     // scale COM velocity
-    for (int i= 0; i< n_mol; i++){
+    for (int i= 1; i< n_mol+1; i++){
       for (int k =0; k < 3; k++)
         v_mol[i][k] *= factor_eta_mol;
     }
@@ -2167,7 +2161,7 @@ void FixTGNHDrude::nh_v_temp()
         molid = molecule[i];
         if (drudetype[type[i]] == NOPOL_TYPE){
           for (int k=0; k<3; k++) {
-            vint = v[i][k] - v_mol_original[molid][k];
+            vint = v[i][k] - v_mol_tmp[molid][k];
             vint *= factor_eta_int;
             v[i][k] = v_mol[molid][k] + vint;
           }
@@ -2175,27 +2169,31 @@ void FixTGNHDrude::nh_v_temp()
         else if (drudetype[type[i]] == CORE_TYPE){
           ci = i;
           di = domain->closest_image(i, atom->map(drudeid[i]));
-          com_mass = mass[ci] + mass[di];
+          massci = mass[type[ci]];
+          massdi = mass[type[di]];
+          com_mass = massci + massdi;
           for (int k=0; k<3; k++){
-            vcom = (mass[ci] * v[ci][k] + mass[di] * v[di][k]) / com_mass;
-            vint = vcom - v_mol_original[molid][k];
+            vcom = (massci * v[ci][k] + massdi * v[di][k]) / com_mass;
+            vint = vcom - v_mol_tmp[molid][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[ci][k] = v_mol[molid][k] + vint - vrel * mass[di]/com_mass;
+            v[ci][k] = v_mol[molid][k] + vint - vrel * massdi/com_mass;
           }
         }
         else if (drudetype[type[i]] == DRUDE_TYPE){
           ci = domain->closest_image(i, atom->map(drudeid[i]));
           di = i;
-          com_mass = mass[ci] + mass[di];
+          massci = mass[type[ci]];
+          massdi = mass[type[di]];
+          com_mass = massci + massdi;
           for (int k=0; k<3; k++){
-            vcom = (mass[ci] * v[ci][k] + mass[di] * v[di][k]) / com_mass;
-            vint = vcom - v_mol_original[molid][k];
+            vcom = (massci * v[ci][k] + massdi * v[di][k]) / com_mass;
+            vint = vcom - v_mol_tmp[molid][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[di][k] = v_mol[molid][k] + vint + vrel * mass[di]/com_mass;
+            v[di][k] = v_mol[molid][k] + vint + vrel * massdi/com_mass;
           }
         }
       }
