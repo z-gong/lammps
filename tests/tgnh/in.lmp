@@ -72,13 +72,15 @@ velocity all create ${vTEMP} 12345
 #fix fNPH all nph iso ${vPRESS} ${vPRESS} 500.0
 #fix fNVE all nve
 
-#fix fNVT all tgnvt/drude temp ${vTEMP} ${vTEMP} 50
-fix fNPT all tgnpt/drude temp ${vTEMP} ${vTEMP} 50 iso ${vPRESS} ${vPRESS} 500
+fix fNVT all tgnvt/drude temp ${vTEMP} ${vTEMP} 50 5.0 10
+#fix fNPT all tgnpt/drude temp ${vTEMP} ${vTEMP} 50 iso ${vPRESS} ${vPRESS} 500
+
+#fix fNVT all nvt temp ${vTEMP} ${vTEMP} 50
 
 compute cTEMP all temp/drude
 variable elec equal ecoul+elong
 
-thermo_style custom step c_cTEMP[1] press pe evdwl v_elec emol density c_cTEMP[2] ke
+thermo_style custom step c_cTEMP[1] press pe evdwl v_elec emol density c_cTEMP[2] temp ke
 thermo 10
 
 timestep 0.5

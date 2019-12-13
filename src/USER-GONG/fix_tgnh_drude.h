@@ -151,12 +151,12 @@ class FixTGNHDrude : public Fix {
   void setup_mol_mass_dof();
   double **v_mol, **v_mol_tmp;
   void compute_temp_mol_int_drude();
-  double tdrude_target;
+  double tdrude_target, tdrude_freq;
   double t_mol, t_int, t_drude;
-  double ke2_mol, ke2_int, ke2_drude;
-  double ke2target_mol, ke2target_int, ke2target_drude;
+  double ke2mol, ke2int, ke2drude;
+  double ke2mol_target, ke2int_target, ke2drude_target;
   double factor_eta_mol, factor_eta_int, factor_eta_drude;
-  double get_scale_factor(double *, double *, double *, double *, double , double, double);
+  double get_scale_factor(double *, double *, double *, const double *, double , double, double);
 };
 
 }

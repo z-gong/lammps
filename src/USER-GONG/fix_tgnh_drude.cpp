@@ -98,7 +98,7 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
   fixedpoint[2] = 0.5*(domain->boxlo[2]+domain->boxhi[2]);
 
   tstat_flag = 0;
-  double t_period = 0.0;
+  double t_period = 0.0, tdrude_period = 0.0;
 
   double p_period[6];
   for (int i = 0; i < 6; i++) {
@@ -121,7 +121,9 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
       if (t_start <= 0.0 || t_stop <= 0.0)
         error->all(FLERR,
                    "Target temperature for fix nvt/npt/nph cannot be 0.0");
-      iarg += 4;
+      tdrude_target = force->numeric(FLERR,arg[iarg+4]);
+      tdrude_period = force->numeric(FLERR,arg[iarg+5]);
+      iarg += 6;
 
     } else if (strcmp(arg[iarg],"iso") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -465,10 +467,13 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
 
   // convert input periods to frequencies
 
-  t_freq = 0.0;
+  t_freq = tdrude_freq = 0.0;
   p_freq[0] = p_freq[1] = p_freq[2] = p_freq[3] = p_freq[4] = p_freq[5] = 0.0;
 
-  if (tstat_flag) t_freq = 1.0 / t_period;
+  if (tstat_flag) {
+    t_freq = 1.0 / t_period;
+    tdrude_freq = 1.0 / tdrude_period;
+  }
   if (p_flag[0]) p_freq[0] = 1.0 / p_period[0];
   if (p_flag[1]) p_freq[1] = 1.0 / p_period[1];
   if (p_flag[2]) p_freq[2] = 1.0 / p_period[2];
@@ -812,28 +817,20 @@ void FixTGNHDrude::setup(int /*vflag*/)
   // masses and initial forces on thermostat variables
 
   if (tstat_flag) {
-    etaint_mass[0] = dof_int * boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++)
-      etaint_mass[ich] = boltz * t_target / (t_freq*t_freq);
+    etaint_mass[0] = ke2int_target / (t_freq * t_freq);
+    etamol_mass[0] = ke2mol_target / (t_freq * t_freq);
+    etadrude_mass[0] = ke2drude_target / (tdrude_freq * tdrude_freq);
     for (int ich = 1; ich < mtchain; ich++) {
-      etaint_dotdot[ich] = (etaint_mass[ich-1]*etaint_dot[ich-1]*etaint_dot[ich-1] -
-                         boltz * t_target) / etaint_mass[ich];
-    }
+      etaint_mass[ich] = boltz * t_target / (t_freq * t_freq);
+      etamol_mass[ich] = boltz * t_target / (t_freq * t_freq);
+      etadrude_mass[ich] = boltz * tdrude_target / (tdrude_freq * tdrude_freq);
 
-    etamol_mass[0] = dof_mol * boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++)
-      etamol_mass[ich] = boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++) {
-      etamol_dotdot[ich] = (etamol_mass[ich-1]*etamol_dot[ich-1]*etamol_dot[ich-1] -
-                         boltz * t_target) / etamol_mass[ich];
-    }
-
-    etadrude_mass[0] = dof_drude * boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++)
-      etadrude_mass[ich] = boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++) {
-      etadrude_dotdot[ich] = (etadrude_mass[ich-1]*etadrude_dot[ich-1]*etadrude_dot[ich-1] -
-                         boltz * t_target) / etadrude_mass[ich];
+      etaint_dotdot[ich] = (etaint_mass[ich - 1] * etaint_dot[ich - 1] * etaint_dot[ich - 1] -
+                            boltz * t_target) / etaint_mass[ich];
+      etamol_dotdot[ich] = (etamol_mass[ich - 1] * etamol_dot[ich - 1] * etamol_dot[ich - 1] -
+                            boltz * t_target) / etamol_mass[ich];
+      etadrude_dotdot[ich] = (etadrude_mass[ich - 1] * etadrude_dot[ich - 1] * etadrude_dot[ich - 1] -
+                              boltz * tdrude_target) / etadrude_mass[ich];
     }
   }
 
@@ -1525,7 +1522,7 @@ double FixTGNHDrude::compute_scalar()
   //       Q_k = k*T/t_freq^2, k > 1
 
   if (tstat_flag) {
-    energy += ke2target_mol * etamol[0] + 0.5*etamol_mass[0]*etamol_dot[0]*etamol_dot[0];
+    energy += ke2mol_target * etamol[0] + 0.5 * etamol_mass[0] * etamol_dot[0] * etamol_dot[0];
     for (ich = 1; ich < mtchain; ich++)
       energy += kt * etamol[ich] + 0.5*etamol_mass[ich]*etamol_dot[ich]*etamol_dot[ich];
   }
@@ -1648,7 +1645,7 @@ double FixTGNHDrude::compute_vector(int n)
     if (n < ilen) {
       ich = n;
       if (ich == 0)
-        return ke2target_mol * etamol[0];
+        return ke2mol_target * etamol[0];
       else
         return kt * etamol[ich];
     }
@@ -1811,66 +1808,67 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
   int *mask = atom->mask;
   int *drudetype = fix_drude->drudetype;
   int *drudeid = fix_drude->drudeid;
-  int molid, ci, di;
-  double com_mass, red_mass, massci, massdi;
+  int imol, ci, di;
+  double mass_com, mass_reduced, mass_core, mass_drude;
   double vint, vcom, vrel;
+  double ke2_int_tmp = 0, ke2_drude_tmp = 0;
 
   // the length of v_mol is n_mol+1
-  for (int i=0; i< n_mol+1; i++){
-    for (int k=0; k < 3; k++){
+  for (int i = 0; i < n_mol + 1; i++) {
+    for (int k = 0; k < 3; k++) {
       v_mol_tmp[i][k] = 0;
     }
   }
 
-  for (int i=0;i<atom->nlocal; i++){
-    if (mask[i] & groupbit){
-      molid = molecule[i];
-      for (int k=0; k<3; k++)
-        v_mol_tmp[molid][k] += v[i][k] * mass[type[i]];
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
+      imol = molecule[i];
+      for (int k = 0; k < 3; k++)
+        v_mol_tmp[imol][k] += v[i][k] * mass[type[i]];
     }
   }
-  MPI_Allreduce(*v_mol_tmp, *v_mol, (n_mol+1)*3, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(*v_mol_tmp, *v_mol, (n_mol + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
 
-  ke2_mol = 0;
+  ke2mol = 0;
   for (int i = 1; i < n_mol + 1; i++) {
     for (int k = 0; k < 3; k++) {
       v_mol[i][k] /= mass_mol[i];
-      ke2_mol += mass_mol[i] * (v_mol[i][k] * v_mol[i][k]);
+      ke2mol += mass_mol[i] * (v_mol[i][k] * v_mol[i][k]);
     }
   }
-  ke2_mol = ke2_mol * force->mvv2e;
-  t_mol = ke2_mol / dof_mol / boltz;
+  ke2mol *= force->mvv2e;
+  t_mol = ke2mol / dof_mol / boltz;
 
-  ke2_int = 0;
-  ke2_drude = 0;
   for (int i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
-      molid = molecule[i];
+      imol = molecule[i];
       if (drudetype[type[i]] == NOPOL_TYPE) {
         for (int k = 0; k < 3; k++) {
-          vint = v[i][k] - v_mol[molid][k];
-          ke2_int += mass[type[i]] * vint * vint;
+          vint = v[i][k] - v_mol[imol][k];
+          ke2_int_tmp += mass[type[i]] * vint * vint;
         }
       } else if (drudetype[type[i]] == CORE_TYPE) {
-        di = domain->closest_image(i, atom->map(drudeid[i]));
-        massci = mass[type[i]];
-        massdi = mass[type[di]];
-        com_mass = massci + massdi;
-        red_mass = massci * massdi / com_mass;
+        di = atom->map(drudeid[i]);
+        mass_core = mass[type[i]];
+        mass_drude = mass[type[di]];
+        mass_com = mass_core + mass_drude;
+        mass_reduced = mass_core * mass_drude / mass_com;
         for (int k = 0; k < 3; k++) {
+          vcom = (mass_core * v[i][k] + mass_drude * v[di][k]) / mass_com;
+          vint = vcom - v_mol[imol][k];
+          ke2_int_tmp += mass_com * vint * vint;
           vrel = v[di][k] - v[i][k];
-          ke2_drude += red_mass * vrel * vrel;
-          vcom = (massci * v[i][k] + massdi * v[di][k]) / com_mass;
-          vint = vcom - v_mol[molid][k];
-          ke2_int += com_mass * vint * vint;
+          ke2_drude_tmp += mass_reduced * vrel * vrel;
         }
       }
     }
   }
-  ke2_int = ke2_int * force->mvv2e;
-  t_int = ke2_int / dof_int / boltz;
-  ke2_drude = ke2_drude * force->mvv2e;
-  t_drude = ke2_drude / dof_drude / boltz;
+  MPI_Allreduce(&ke2_int_tmp, &ke2int, 1, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&ke2_drude_tmp, &ke2drude, 1, MPI_DOUBLE, MPI_SUM, world);
+  ke2int *= force->mvv2e;
+  ke2drude *= force->mvv2e;
+  t_int = ke2int / dof_int / boltz;
+  t_drude = ke2drude / dof_drude / boltz;
 }
 
 /* ----------------------------------------------------------------------
@@ -1881,47 +1879,58 @@ void FixTGNHDrude::nhc_temp_integrate()
 {
   compute_temp_mol_int_drude();
 
+  // update masses of thermostat in cause target temperature changes
+  etamol_mass[0] = ke2mol_target / (t_freq*t_freq);
+  etaint_mass[0] = ke2int_target / (t_freq*t_freq);
+  for (int ich = 1; ich < mtchain; ich++){
+    etamol_mass[ich] = boltz * t_target / (t_freq*t_freq);
+    etaint_mass[ich] = boltz * t_target / (t_freq*t_freq);
+  }
+
   // thermostat for molecular COM
-  factor_eta_mol = get_scale_factor(etamol, etamol_dot, etamol_dotdot, etamol_mass, ke2_mol, ke2target_mol, t_target);
-  factor_eta_int = get_scale_factor(etaint, etaint_dot, etaint_dotdot, etamol_mass, ke2_int, ke2target_int, t_target);
-  factor_eta_drude = get_scale_factor(etadrude, etadrude_dot, etadrude_dotdot, etadrude_mass, ke2_drude, ke2target_drude, tdrude_target);
+  factor_eta_mol = get_scale_factor(etamol, etamol_dot, etamol_dotdot, etamol_mass,
+                                    ke2mol, ke2mol_target, t_target);
+  factor_eta_int = get_scale_factor(etaint, etaint_dot, etaint_dotdot, etaint_mass,
+                                    ke2int, ke2int_target, t_target);
+  factor_eta_drude = get_scale_factor(etadrude, etadrude_dot, etadrude_dotdot, etadrude_mass,
+                                      ke2drude, ke2drude_target, tdrude_target);
 
   nh_v_temp();
 }
 
-double FixTGNHDrude::get_scale_factor(double *eta, double *eta_dot, double *eta_dotdot, double* eta_mass, double ke2, double ke2target, double t0) {
+double FixTGNHDrude::get_scale_factor(double *eta, double *eta_dot, double *eta_dotdot, const double *eta_mass,
+                                      double ke2, double ke2_target, double tt) {
   int ich;
   double expfac;
-  double ncfac = 1.0/nc_tchain;
+  double ncfac = 1.0 / nc_tchain;
   double factor_eta = 0;
 
-  eta_dotdot[0] = (ke2 - ke2target)/eta_mass[0];
+  eta_dotdot[0] = (ke2 - ke2_target) / eta_mass[0];
   for (int iloop = 0; iloop < nc_tchain; iloop++) {
-    for (ich = mtchain-1; ich > 0; ich--) {
-      expfac = exp(-ncfac*dt8*eta_dot[ich+1]);
+    for (ich = mtchain - 1; ich > 0; ich--) {
+      expfac = exp(-ncfac * dt8 * eta_dot[ich + 1]);
       eta_dot[ich] *= expfac;
-      eta_dot[ich] += eta_dotdot[ich] * ncfac*dt4;
+      eta_dot[ich] += eta_dotdot[ich] * ncfac * dt4;
       eta_dot[ich] *= expfac;
     }
-    expfac = exp(-ncfac*dt8*eta_dot[1]);
+    expfac = exp(-ncfac * dt8 * eta_dot[1]);
     eta_dot[0] *= expfac;
-    eta_dot[0] += eta_dotdot[0] * ncfac*dt4;
+    eta_dot[0] += eta_dotdot[0] * ncfac * dt4;
     eta_dot[0] *= expfac;
-    factor_eta= exp(-ncfac * dthalf * eta_dot[0]);
+    factor_eta = exp(-ncfac * dthalf * eta_dot[0]);
 
-    eta_dotdot[0] = (ke2 * factor_eta* factor_eta- ke2target) / eta_mass[0];
     for (ich = 0; ich < mtchain; ich++)
       eta[ich] += ncfac * dthalf * eta_dot[ich];
 
+    eta_dotdot[0] = (ke2 * factor_eta * factor_eta - ke2_target) / eta_mass[0];
     eta_dot[0] *= expfac;
-    eta_dot[0] += eta_dotdot[0] * ncfac*dt4;
+    eta_dot[0] += eta_dotdot[0] * ncfac * dt4;
     eta_dot[0] *= expfac;
-
     for (ich = 1; ich < mtchain; ich++) {
-      expfac = exp(-ncfac*dt8*eta_dot[ich+1]);
+      expfac = exp(-ncfac * dt8 * eta_dot[ich + 1]);
       eta_dot[ich] *= expfac;
-      eta_dotdot[ich] = (eta_mass[ich-1]*eta_dot[ich-1]*eta_dot[ich-1] - boltz * t0)/eta_mass[ich];
-      eta_dot[ich] += eta_dotdot[ich] * ncfac*dt4;
+      eta_dotdot[ich] = (eta_mass[ich - 1] * eta_dot[ich - 1] * eta_dot[ich - 1] - boltz * tt) / eta_mass[ich];
+      eta_dot[ich] += eta_dotdot[ich] * ncfac * dt4;
       eta_dot[ich] *= expfac;
     }
   }
@@ -2139,8 +2148,8 @@ void FixTGNHDrude::nh_v_temp()
   int *drudetype = fix_drude->drudetype;
   int *drudeid = fix_drude->drudeid;
 
-  int molid, ci, di;
-  double com_mass, red_mass, massci, massdi;
+  int imol, ci, di;
+  double mass_com, mass_core, mass_drude;
   double vint, vcom, vrel;
 
   // store the original velocity of v_mol to v_mol_tmp
@@ -2155,40 +2164,40 @@ void FixTGNHDrude::nh_v_temp()
     // scale internal velocity and drude relative velocity
     for (int i = 0; i < atom->nlocal; i++) {
       if (mask[i] & groupbit) {
-        molid = molecule[i];
+        imol = molecule[i];
         if (drudetype[type[i]] == NOPOL_TYPE) {
           for (int k = 0; k < 3; k++) {
-            vint = v[i][k] - v_mol_tmp[molid][k];
+            vint = v[i][k] - v_mol_tmp[imol][k];
             vint *= factor_eta_int;
-            v[i][k] = v_mol[molid][k] + vint;
+            v[i][k] = v_mol[imol][k] + vint;
           }
         } else if (drudetype[type[i]] == CORE_TYPE) {
           ci = i;
-          di = domain->closest_image(i, atom->map(drudeid[i]));
-          massci = mass[type[ci]];
-          massdi = mass[type[di]];
-          com_mass = massci + massdi;
+          di = atom->map(drudeid[i]);
+          mass_core = mass[type[ci]];
+          mass_drude = mass[type[di]];
+          mass_com = mass_core + mass_drude;
           for (int k = 0; k < 3; k++) {
-            vcom = (massci * v[ci][k] + massdi * v[di][k]) / com_mass;
-            vint = vcom - v_mol_tmp[molid][k];
+            vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
+            vint = vcom - v_mol_tmp[imol][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[ci][k] = v_mol[molid][k] + vint - vrel * massdi / com_mass;
+            v[ci][k] = v_mol[imol][k] + vint - vrel * mass_drude / mass_com;
           }
         } else if (drudetype[type[i]] == DRUDE_TYPE) {
-          ci = domain->closest_image(i, atom->map(drudeid[i]));
+          ci = atom->map(drudeid[i]);
           di = i;
-          massci = mass[type[ci]];
-          massdi = mass[type[di]];
-          com_mass = massci + massdi;
+          mass_core = mass[type[ci]];
+          mass_drude = mass[type[di]];
+          mass_com = mass_core + mass_drude;
           for (int k = 0; k < 3; k++) {
-            vcom = (massci * v[ci][k] + massdi * v[di][k]) / com_mass;
-            vint = vcom - v_mol_tmp[molid][k];
+            vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
+            vint = vcom - v_mol_tmp[imol][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[di][k] = v_mol[molid][k] + vint + vrel * massdi / com_mass;
+            v[di][k] = v_mol[imol][k] + vint + vrel * mass_core / mass_com;
           }
         }
       }
@@ -2337,10 +2346,9 @@ void FixTGNHDrude::compute_temp_target()
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
 
   t_target = t_start + delta * (t_stop-t_start);
-  tdrude_target = 1.0;
-  ke2target_mol = dof_mol * boltz * t_target;
-  ke2target_int = dof_int * boltz * t_target;
-  ke2target_drude = dof_drude * boltz * tdrude_target;
+  ke2mol_target = dof_mol * boltz * t_target;
+  ke2int_target = dof_int * boltz * t_target;
+  ke2drude_target = dof_drude * boltz * tdrude_target;
 }
 
 /* ----------------------------------------------------------------------
