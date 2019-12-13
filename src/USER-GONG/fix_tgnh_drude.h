@@ -80,17 +80,18 @@ class FixTGNHDrude : public Fix {
   int tcomputeflag,pcomputeflag;   // 1 = compute was created by fix
                                    // 0 = created externally
 
-  double *etaint,*etaint_dot;            // chain thermostat for internal DOFs
-  double *etaint_dotdot;
-  double *etaint_mass;
-  int mtchain;                     // length of chain
-  int mtchain_default_flag;        // 1 = mtchain is default
-
-  double *etamol,*etamol_dot;            // chain thermostat for motion of whole molecules
+  double *etamol;
+  double *etamol_dot;            // chain thermostat for motion of whole molecules
   double *etamol_dotdot;
   double *etamol_mass;
 
-  double *etadrude,*etadrude_dot;            // chain thermostat for Drude relative motions
+  double *etaint;
+  double *etaint_dot;            // chain thermostat for internal DOFs
+  double *etaint_dotdot;
+  double *etaint_mass;
+
+  double *etadrude;
+  double *etadrude_dot;            // chain thermostat for Drude relative motions
   double *etadrude_dotdot;
   double *etadrude_mass;
 
@@ -98,6 +99,8 @@ class FixTGNHDrude : public Fix {
   double *etap_dot;
   double *etap_dotdot;
   double *etap_mass;
+
+  int mtchain;                     // length of chain
   int mpchain;                     // length of chain
 
   int mtk_flag;                    // 0 if using Hoover barostat
@@ -107,7 +110,6 @@ class FixTGNHDrude : public Fix {
   double p_hydro;                  // hydrostatic target pressure
 
   int nc_tchain,nc_pchain;
-  double factor_eta;
   double sigma[6];                 // scaled target stress
   double fdev[6];                  // deviatoric force on barostat
   int deviatoric_flag;             // 0 if target stress tensor is hydrostatic
@@ -115,12 +117,6 @@ class FixTGNHDrude : public Fix {
   int nreset_h0;                   // interval for resetting h0
 
   double mtk_term1,mtk_term2;      // Martyna-Tobias-Klein corrections
-
-  int eta_mass_flag;               // 1 if eta_mass updated, 0 if not.
-  int omega_mass_flag;             // 1 if omega_mass updated, 0 if not.
-  int etap_mass_flag;              // 1 if etap_mass updated, 0 if not.
-  int dipole_flag;                 // 1 if dipole is updated, 0 if not.
-  int dlm_flag;                    // 1 if using the DLM rotational integrator, 0 if not
 
   int scaleyz;                     // 1 if yz scaled with lz
   int scalexz;                     // 1 if xz scaled with lz
@@ -157,12 +153,13 @@ class FixTGNHDrude : public Fix {
   double dof_mol, dof_int, dof_drude;
   void mass_compute();
   void dof_compute();
-  double **v_mol, **v_int, **v_drude;
-  double **v_mol_tmp, **v_int_tmp, **v_drude_tmp;
+  double **v_mol, **v_mol_tmp;
   void temp_compute();
   double t_mol, t_int, t_drude;
   double ke2_mol, ke2_int, ke2_drude;
   double ke2target_mol, ke2target_int, ke2target_drude;
+  double factor_eta_mol, factor_eta_int, factor_eta_drude;
+  double get_scale_factor(double *, double *, double *, double *, double , double, double);
 };
 
 }
