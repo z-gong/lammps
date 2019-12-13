@@ -766,7 +766,6 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   MPI_Allreduce(mass_tmp, mass_mol, n_mol + 1, MPI_DOUBLE, MPI_SUM, world);
 
   // DOFs
-  t_drude = 1.0;
   t_current = temperature->compute_scalar();
   _tdof = temperature->dof;
   dof_mol = 3 * n_mol - 3;
@@ -1826,16 +1825,15 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
   for (int i=0;i<atom->nlocal; i++){
     if (mask[i] & groupbit){
       molid = molecule[i];
-      v_mol_tmp[molid][0] = v[i][0] * mass[type[i]];
-      v_mol_tmp[molid][1] = v[i][1] * mass[type[i]];
-      v_mol_tmp[molid][2] = v[i][2] * mass[type[i]];
+      for (int k=0; k<3; k++)
+        v_mol_tmp[molid][k] += v[i][k] * mass[type[i]];
     }
   }
   MPI_Allreduce(*v_mol_tmp, *v_mol, (n_mol+1)*3, MPI_DOUBLE, MPI_SUM, world);
 
   ke2_mol = 0;
-  for (int i = 1; i < n_mol+1; i++) {
-    for (int k=0; k<3; k++){
+  for (int i = 1; i < n_mol + 1; i++) {
+    for (int k = 0; k < 3; k++) {
       v_mol[i][k] /= mass_mol[i];
       ke2_mol += mass_mol[i] * (v_mol[i][k] * v_mol[i][k]);
     }
@@ -1845,22 +1843,21 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
 
   ke2_int = 0;
   ke2_drude = 0;
-  for (int i=0;i<atom->nlocal; i++){
-    if (mask[i] & groupbit){
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
       molid = molecule[i];
-      if (drudetype[type[i]] == NOPOL_TYPE){
-        for (int k=0; k<3; k++) {
+      if (drudetype[type[i]] == NOPOL_TYPE) {
+        for (int k = 0; k < 3; k++) {
           vint = v[i][k] - v_mol[molid][k];
-          ke2_int += mass[type[i]] * vint* vint;
+          ke2_int += mass[type[i]] * vint * vint;
         }
-      }
-      else if (drudetype[type[i]] == CORE_TYPE){
+      } else if (drudetype[type[i]] == CORE_TYPE) {
         di = domain->closest_image(i, atom->map(drudeid[i]));
         massci = mass[type[i]];
         massdi = mass[type[di]];
         com_mass = massci + massdi;
         red_mass = massci * massdi / com_mass;
-        for (int k=0; k<3; k++){
+        for (int k = 0; k < 3; k++) {
           vrel = v[di][k] - v[i][k];
           ke2_drude += red_mass * vrel * vrel;
           vcom = (massci * v[i][k] + massdi * v[di][k]) / com_mass;
@@ -1887,7 +1884,7 @@ void FixTGNHDrude::nhc_temp_integrate()
   // thermostat for molecular COM
   factor_eta_mol = get_scale_factor(etamol, etamol_dot, etamol_dotdot, etamol_mass, ke2_mol, ke2target_mol, t_target);
   factor_eta_int = get_scale_factor(etaint, etaint_dot, etaint_dotdot, etamol_mass, ke2_int, ke2target_int, t_target);
-  factor_eta_drude = get_scale_factor(etadrude, etadrude_dot, etadrude_dotdot, etadrude_mass, ke2_drude, ke2target_drude, t_drude);
+  factor_eta_drude = get_scale_factor(etadrude, etadrude_dot, etadrude_dotdot, etadrude_mass, ke2_drude, ke2target_drude, tdrude_target);
 
   nh_v_temp();
 }
@@ -2156,44 +2153,42 @@ void FixTGNHDrude::nh_v_temp()
         v_mol[i][k] *= factor_eta_mol;
     }
     // scale internal velocity and drude relative velocity
-    for (int i=0;i<atom->nlocal; i++){
-      if (mask[i] & groupbit){
+    for (int i = 0; i < atom->nlocal; i++) {
+      if (mask[i] & groupbit) {
         molid = molecule[i];
-        if (drudetype[type[i]] == NOPOL_TYPE){
-          for (int k=0; k<3; k++) {
+        if (drudetype[type[i]] == NOPOL_TYPE) {
+          for (int k = 0; k < 3; k++) {
             vint = v[i][k] - v_mol_tmp[molid][k];
             vint *= factor_eta_int;
             v[i][k] = v_mol[molid][k] + vint;
           }
-        }
-        else if (drudetype[type[i]] == CORE_TYPE){
+        } else if (drudetype[type[i]] == CORE_TYPE) {
           ci = i;
           di = domain->closest_image(i, atom->map(drudeid[i]));
           massci = mass[type[ci]];
           massdi = mass[type[di]];
           com_mass = massci + massdi;
-          for (int k=0; k<3; k++){
+          for (int k = 0; k < 3; k++) {
             vcom = (massci * v[ci][k] + massdi * v[di][k]) / com_mass;
             vint = vcom - v_mol_tmp[molid][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[ci][k] = v_mol[molid][k] + vint - vrel * massdi/com_mass;
+            v[ci][k] = v_mol[molid][k] + vint - vrel * massdi / com_mass;
           }
-        }
-        else if (drudetype[type[i]] == DRUDE_TYPE){
+        } else if (drudetype[type[i]] == DRUDE_TYPE) {
           ci = domain->closest_image(i, atom->map(drudeid[i]));
           di = i;
           massci = mass[type[ci]];
           massdi = mass[type[di]];
           com_mass = massci + massdi;
-          for (int k=0; k<3; k++){
+          for (int k = 0; k < 3; k++) {
             vcom = (massci * v[ci][k] + massdi * v[di][k]) / com_mass;
             vint = vcom - v_mol_tmp[molid][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[di][k] = v_mol[molid][k] + vint + vrel * massdi/com_mass;
+            v[di][k] = v_mol[molid][k] + vint + vrel * massdi / com_mass;
           }
         }
       }
@@ -2342,9 +2337,10 @@ void FixTGNHDrude::compute_temp_target()
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
 
   t_target = t_start + delta * (t_stop-t_start);
+  tdrude_target = 1.0;
   ke2target_mol = dof_mol * boltz * t_target;
   ke2target_int = dof_int * boltz * t_target;
-  ke2target_drude = dof_drude * boltz * t_drude;
+  ke2target_drude = dof_drude * boltz * tdrude_target;
 }
 
 /* ----------------------------------------------------------------------
