@@ -66,7 +66,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
   // default values
 
   pcouple = NONE;
-  drag = 0.0;
   allremap = 1;
   id_dilate = NULL;
   mtchain = mpchain = 3;
@@ -242,11 +241,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"drag") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      drag = force->numeric(FLERR,arg[iarg+1]);
-      if (drag < 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"dilate") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"all") == 0) allremap = 1;
@@ -688,11 +682,7 @@ void FixTGNHDrude::init()
       p_freq_max = MAX(p_freq_max,p_freq[4]);
       p_freq_max = MAX(p_freq_max,p_freq[5]);
     }
-    pdrag_factor = 1.0 - (update->dt * p_freq_max * drag / nc_pchain);
   }
-
-  if (tstat_flag)
-    tdrag_factor = 1.0 - (update->dt * t_freq * drag / nc_tchain);
 
   // tally the number of dimensions that are barostatted
   // set initial volume and reference cell, if not already done
@@ -1784,12 +1774,6 @@ void FixTGNHDrude::reset_dt()
 
   if (strstr(update->integrate_style,"respa"))
     dto = 0.5*step_respa[0];
-
-  if (pstat_flag)
-    pdrag_factor = 1.0 - (update->dt * p_freq_max * drag / nc_pchain);
-
-  if (tstat_flag)
-    tdrag_factor = 1.0 - (update->dt * t_freq * drag / nc_tchain);
 }
 
 /* ----------------------------------------------------------------------
@@ -1837,6 +1821,12 @@ void FixTGNHDrude::temp_compute() {
   int *drudeid = fix_drude->drudeid;
 
   int molid;
+
+  for (int i=0; i< n_mol; i++){
+    for (int k=0; k < 3; k++){
+      v_mol_tmp[i][k] = 0;
+    }
+  }
 
   for (int i=0;i<atom->nlocal; i++){
     if (mask[i] & groupbit){
@@ -1985,14 +1975,12 @@ void FixTGNHDrude::nhc_press_integrate()
       expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
       etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
-      etap_dot[ich] *= pdrag_factor;
       etap_dot[ich] *= expfac;
     }
 
     expfac = exp(-ncfac*dt8*etap_dot[1]);
     etap_dot[0] *= expfac;
     etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
-    etap_dot[0] *= pdrag_factor;
     etap_dot[0] *= expfac;
 
     for (ich = 0; ich < mpchain; ich++)
@@ -2420,7 +2408,6 @@ void FixTGNHDrude::nh_omega_dot()
         (omega_mass[i] * nktv2p) + mtk_term1 / omega_mass[i];
       if (deviatoric_flag) f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
       omega_dot[i] += f_omega*dthalf;
-      omega_dot[i] *= pdrag_factor;
     }
 
   mtk_term2 = 0.0;
@@ -2438,7 +2425,6 @@ void FixTGNHDrude::nh_omega_dot()
         if (deviatoric_flag)
           f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
         omega_dot[i] += f_omega*dthalf;
-        omega_dot[i] *= pdrag_factor;
       }
     }
   }

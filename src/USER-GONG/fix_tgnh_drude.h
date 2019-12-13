@@ -63,8 +63,6 @@ class FixTGNHDrude : public Fix {
   double omega[6],omega_dot[6];
   double omega_mass[6];
   double p_current[6];
-  double drag,tdrag_factor;        // drag factor on particle thermostat
-  double pdrag_factor;             // drag factor on barostat
   int kspace_flag;                 // 1 if KSpace invoked, 0 if not
   int nrigid;                      // number of rigid fixes
   int dilate_group_bit;            // mask for dilation group
