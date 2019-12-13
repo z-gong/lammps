@@ -568,7 +568,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
     if (strcmp(modify->fix[ifix]->style,"drude") == 0) break;
   if (ifix == modify->nfix) error->all(FLERR, "fix tgnh/drude requires fix drude");
   fix_drude = (FixDrude *) modify->fix[ifix];
-  n_mol = n_atom = n_drude = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -743,27 +742,31 @@ void FixTGNHDrude::init()
 
 void FixTGNHDrude::setup_mol_mass_dof() {
   double *mass = atom->mass;
+  int *mask = atom->mask;
   int *molecule = atom->molecule;
   int *type = atom->type;
   int *drudetype = fix_drude->drudetype;
-
+  int n_drude, n_drude_tmp = 0;
   tagint id_mol = -1;
-  for (int i=0; i< atom->nlocal; i++){
-    if (drudetype[type[i]] == DRUDE_TYPE)
-      n_drude += 1;
-    else
-      n_atom += 1;
+
+  for (int i = 0; i < atom->nlocal; i++) {
+    // record all the molecules although some of them are not in the group
     id_mol = std::max(id_mol, molecule[i]);
+    if (mask[i] & groupbit) {
+      if (drudetype[type[i]] == DRUDE_TYPE)
+        n_drude_tmp += 1;
+    }
   }
+  MPI_Allreduce(&n_drude_tmp, &n_drude, 1, MPI_LMP_TAGINT, MPI_SUM, world);
   MPI_Allreduce(&id_mol, &n_mol, 1, MPI_LMP_TAGINT, MPI_MAX, world);
 
   // length of v_mol set to n_mol+1, so that the subscript start from 1, we can call v_mol[n_mol]
-  memory->create(v_mol, n_mol+1, 3, "fix_tgnh_drude::v_mol");
-  memory->create(v_mol_tmp, n_mol+1, 3, "fix_tgnh_drude::v_mol_tmp");
+  memory->create(v_mol, n_mol + 1, 3, "fix_tgnh_drude::v_mol");
+  memory->create(v_mol_tmp, n_mol + 1, 3, "fix_tgnh_drude::v_mol_tmp");
   memory->create(mass_mol, n_mol + 1, "fix_tgnh_drude::mass_mol");
 
-  auto* mass_tmp = new double[n_mol+1];
-  memset(mass_tmp, 0, sizeof(double) * (n_mol+1));
+  auto *mass_tmp = new double[n_mol + 1];
+  memset(mass_tmp, 0, sizeof(double) * (n_mol + 1));
   for (int i = 0; i < atom->nlocal; i++) {
     id_mol = molecule[i];
     mass_tmp[id_mol] += mass[type[i]];
@@ -773,8 +776,8 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   // DOFs
   t_current = temperature->compute_scalar();
   _tdof = temperature->dof;
-  dof_mol = 3 * n_mol - 3;
-  dof_drude =  3 * n_drude;
+  dof_mol = 3 * n_mol - 3; // remove DOFs of COM motion of the whole system
+  dof_drude = 3 * n_drude;
   dof_int = _tdof - dof_mol - dof_drude;
 }
 
@@ -1813,12 +1816,7 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
   double vint, vcom, vrel;
   double ke2_int_tmp = 0, ke2_drude_tmp = 0;
 
-  // the length of v_mol is n_mol+1
-  for (int i = 0; i < n_mol + 1; i++) {
-    for (int k = 0; k < 3; k++) {
-      v_mol_tmp[i][k] = 0;
-    }
-  }
+  memset(*v_mol_tmp, 0, sizeof(double) * (n_mol + 1) * 3); // the length of v_mol is n_mol+1
 
   for (int i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
@@ -2152,52 +2150,31 @@ void FixTGNHDrude::nh_v_temp()
   double mass_com, mass_core, mass_drude;
   double vint, vcom, vrel;
 
-  // store the original velocity of v_mol to v_mol_tmp
-  std::copy(&v_mol[0][0], &v_mol[0][0] + (n_mol + 1) * 3, &v_mol_tmp[0][0]);
-
   if (which == NOBIAS) {
-    // scale COM velocity
-    for (int i= 1; i< n_mol+1; i++){
-      for (int k =0; k < 3; k++)
-        v_mol[i][k] *= factor_eta_mol;
-    }
-    // scale internal velocity and drude relative velocity
     for (int i = 0; i < atom->nlocal; i++) {
       if (mask[i] & groupbit) {
         imol = molecule[i];
         if (drudetype[type[i]] == NOPOL_TYPE) {
           for (int k = 0; k < 3; k++) {
-            vint = v[i][k] - v_mol_tmp[imol][k];
+            vint = v[i][k] - v_mol[imol][k];
             vint *= factor_eta_int;
-            v[i][k] = v_mol[imol][k] + vint;
+            v[i][k] = v_mol[imol][k] * factor_eta_mol + vint;
           }
         } else if (drudetype[type[i]] == CORE_TYPE) {
           ci = i;
           di = atom->map(drudeid[i]);
+          if (di == -1) printf("FUCK %d", atom->tag[i]);
           mass_core = mass[type[ci]];
           mass_drude = mass[type[di]];
           mass_com = mass_core + mass_drude;
           for (int k = 0; k < 3; k++) {
             vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
-            vint = vcom - v_mol_tmp[imol][k];
+            vint = vcom - v_mol[imol][k];
             vrel = v[di][k] - v[ci][k];
             vint *= factor_eta_int;
             vrel *= factor_eta_drude;
-            v[ci][k] = v_mol[imol][k] + vint - vrel * mass_drude / mass_com;
-          }
-        } else if (drudetype[type[i]] == DRUDE_TYPE) {
-          ci = atom->map(drudeid[i]);
-          di = i;
-          mass_core = mass[type[ci]];
-          mass_drude = mass[type[di]];
-          mass_com = mass_core + mass_drude;
-          for (int k = 0; k < 3; k++) {
-            vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
-            vint = vcom - v_mol_tmp[imol][k];
-            vrel = v[di][k] - v[ci][k];
-            vint *= factor_eta_int;
-            vrel *= factor_eta_drude;
-            v[di][k] = v_mol[imol][k] + vint + vrel * mass_core / mass_com;
+            v[ci][k] = v_mol[imol][k] * factor_eta_mol + vint - vrel * mass_drude / mass_com;
+            v[di][k] = v_mol[imol][k] * factor_eta_mol + vint + vrel * mass_core / mass_com;
           }
         }
       }
