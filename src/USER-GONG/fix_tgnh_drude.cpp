@@ -483,7 +483,7 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
 
   // Nose/Hoover temp and pressure init
 
-  size_vector = 0;
+  size_vector = 3;
 
   if (tstat_flag) {
     int ich;
@@ -497,7 +497,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
       etaint[ich] = etaint_dot[ich] = etaint_dotdot[ich] = 0.0;
     }
     etaint_mass = new double[mtchain];
-    size_vector += 2*2*mtchain;
 
     etamol = new double[mtchain];
     // add one extra dummy thermostat for eta_dot, set to zero
@@ -527,9 +526,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
     omega[3] = omega[4] = omega[5] = 0.0;
     omega_dot[3] = omega_dot[4] = omega_dot[5] = 0.0;
     omega_mass[3] = omega_mass[4] = omega_mass[5] = 0.0;
-    if (pstyle == ISO) size_vector += 2*2*1;
-    else if (pstyle == ANISO) size_vector += 2*2*3;
-    else if (pstyle == TRICLINIC) size_vector += 2*2*6;
 
     if (mpchain) {
       int ich;
@@ -545,10 +541,7 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
           etap_dotdot[ich] = 0.0;
       }
       etap_mass = new double[mpchain];
-      size_vector += 2*2*mpchain;
     }
-
-    if (deviatoric_flag) size_vector += 1;
   }
 
   nrigid = 0;
@@ -1573,175 +1566,20 @@ double FixTGNHDrude::compute_scalar()
   return energy;
 }
 
-/* ----------------------------------------------------------------------
-   return a single element of the following vectors, in this order:
-      eta[tchain], eta_dot[tchain], omega[ndof], omega_dot[ndof]
-      etap[pchain], etap_dot[pchain], PE_eta[tchain], KE_eta_dot[tchain]
-      PE_omega[ndof], KE_omega_dot[ndof], PE_etap[pchain], KE_etap_dot[pchain]
-      PE_strain[1]
-  if no thermostat exists, related quantities are omitted from the list
-  if no barostat exists, related quantities are omitted from the list
-  ndof = 1,3,6 degrees of freedom for pstyle = ISO,ANISO,TRI
-------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------- */
 
 double FixTGNHDrude::compute_vector(int n)
 {
-  int ilen;
-
-  if (tstat_flag) {
-    ilen = mtchain;
-    if (n < ilen) return etamol[n];
-    n -= ilen;
-    ilen = mtchain;
-    if (n < ilen) return etamol_dot[n];
-    n -= ilen;
+  switch (n){
+    case 0:
+      return t_mol;
+    case 1:
+      return t_int;
+    case 2:
+      return t_drude;
+    default:
+      return 0.0;
   }
-
-  if (pstat_flag) {
-    if (pstyle == ISO) {
-      ilen = 1;
-      if (n < ilen) return omega[n];
-      n -= ilen;
-    } else if (pstyle == ANISO) {
-      ilen = 3;
-      if (n < ilen) return omega[n];
-      n -= ilen;
-    } else {
-      ilen = 6;
-      if (n < ilen) return omega[n];
-      n -= ilen;
-    }
-
-    if (pstyle == ISO) {
-      ilen = 1;
-      if (n < ilen) return omega_dot[n];
-      n -= ilen;
-    } else if (pstyle == ANISO) {
-      ilen = 3;
-      if (n < ilen) return omega_dot[n];
-      n -= ilen;
-    } else {
-      ilen = 6;
-      if (n < ilen) return omega_dot[n];
-      n -= ilen;
-    }
-
-    if (mpchain) {
-      ilen = mpchain;
-      if (n < ilen) return etap[n];
-      n -= ilen;
-      ilen = mpchain;
-      if (n < ilen) return etap_dot[n];
-      n -= ilen;
-    }
-  }
-
-  double volume;
-  double kt = boltz * t_target;
-  double lkt_press = kt;
-  int ich;
-  if (dimension == 3) volume = domain->xprd * domain->yprd * domain->zprd;
-  else volume = domain->xprd * domain->yprd;
-
-  if (tstat_flag) {
-    ilen = mtchain;
-    if (n < ilen) {
-      ich = n;
-      if (ich == 0)
-        return ke2mol_target * etamol[0];
-      else
-        return kt * etamol[ich];
-    }
-    n -= ilen;
-    ilen = mtchain;
-    if (n < ilen) {
-      ich = n;
-      if (ich == 0)
-        return 0.5*etamol_mass[0]*etamol_dot[0]*etamol_dot[0];
-      else
-        return 0.5*etamol_mass[ich]*etamol_dot[ich]*etamol_dot[ich];
-    }
-    n -= ilen;
-  }
-
-  if (pstat_flag) {
-    if (pstyle == ISO) {
-      ilen = 1;
-      if (n < ilen)
-        return p_hydro*(volume-vol0) / nktv2p;
-      n -= ilen;
-    } else if (pstyle == ANISO) {
-      ilen = 3;
-      if (n < ilen) {
-        if (p_flag[n])
-          return p_hydro*(volume-vol0) / (pdim*nktv2p);
-        else
-          return 0.0;
-      }
-      n -= ilen;
-    } else {
-      ilen = 6;
-      if (n < ilen) {
-        if (n > 2) return 0.0;
-        else if (p_flag[n])
-          return p_hydro*(volume-vol0) / (pdim*nktv2p);
-        else
-          return 0.0;
-      }
-      n -= ilen;
-    }
-
-    if (pstyle == ISO) {
-      ilen = 1;
-      if (n < ilen)
-        return pdim*0.5*omega_dot[n]*omega_dot[n]*omega_mass[n];
-      n -= ilen;
-    } else if (pstyle == ANISO) {
-      ilen = 3;
-      if (n < ilen) {
-        if (p_flag[n])
-          return 0.5*omega_dot[n]*omega_dot[n]*omega_mass[n];
-        else return 0.0;
-      }
-      n -= ilen;
-    } else {
-      ilen = 6;
-      if (n < ilen) {
-        if (p_flag[n])
-          return 0.5*omega_dot[n]*omega_dot[n]*omega_mass[n];
-        else return 0.0;
-      }
-      n -= ilen;
-    }
-
-    if (mpchain) {
-      ilen = mpchain;
-      if (n < ilen) {
-        ich = n;
-        if (ich == 0) return lkt_press * etap[0];
-        else return kt * etap[ich];
-      }
-      n -= ilen;
-      ilen = mpchain;
-      if (n < ilen) {
-        ich = n;
-        if (ich == 0)
-          return 0.5*etap_mass[0]*etap_dot[0]*etap_dot[0];
-        else
-          return 0.5*etap_mass[ich]*etap_dot[ich]*etap_dot[ich];
-      }
-      n -= ilen;
-    }
-
-    if (deviatoric_flag) {
-      ilen = 1;
-      if (n < ilen)
-        return compute_strain_energy();
-      n -= ilen;
-    }
-  }
-
-  return 0.0;
 }
 
 /* ---------------------------------------------------------------------- */

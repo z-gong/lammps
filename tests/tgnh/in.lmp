@@ -80,8 +80,8 @@ fix fNVT all tgnvt/drude temp ${vTEMP} ${vTEMP} 50 5.0 10
 compute cTEMP all temp/drude
 variable elec equal ecoul+elong
 
-thermo_style custom step c_cTEMP[1] press pe evdwl v_elec emol density c_cTEMP[2] temp ke
-thermo 10
+thermo_style custom step c_cTEMP[1] press pe evdwl v_elec emol density c_cTEMP[2] temp f_fNVT[1] f_fNVT[2] f_fNVT[3]
+thermo 20
 
 timestep 0.5
-run 1000
+run 10000
