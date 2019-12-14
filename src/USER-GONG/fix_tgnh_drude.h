@@ -56,7 +56,7 @@ class FixTGNHDrude : public Fix {
   int tstat_flag;                   // 1 if control T
   int pstat_flag;                   // 1 if control P
 
-  int pstyle,pcouple,allremap;
+  int pstyle,pcouple;
   int p_flag[6];                   // 1 if control P on this dim, 0 if not
   double p_start[6],p_stop[6];
   double p_freq[6],p_target[6];
@@ -65,9 +65,7 @@ class FixTGNHDrude : public Fix {
   double p_current[6];
   int kspace_flag;                 // 1 if KSpace invoked, 0 if not
   int nrigid;                      // number of rigid fixes
-  int dilate_group_bit;            // mask for dilation group
   int *rfix;                       // indices of rigid fixes
-  char *id_dilate;                 // group name to dilate
   class Irregular *irregular;      // for migrating atoms after box flips
 
   int nlevels_respa;

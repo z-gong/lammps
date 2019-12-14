@@ -12,7 +12,7 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
-   Contributing authors: Mark Stevens (SNL), Aidan Thompson (SNL)
+   Contributing authors: Mark Stevens (SNL), Aidan Thompson (SNL), Zheng Gong (ENS Lyon)
 ------------------------------------------------------------------------- */
 
 #include "fix_tgnh_drude.h"
@@ -50,7 +50,7 @@ enum{ISO,ANISO,TRICLINIC};
 
 FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
-  rfix(NULL), id_dilate(NULL), irregular(NULL), id_temp(NULL), id_press(NULL)
+  rfix(NULL), irregular(NULL), id_temp(NULL), id_press(NULL)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
@@ -66,8 +66,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
   // default values
 
   pcouple = NONE;
-  allremap = 1;
-  id_dilate = NULL;
   mtchain = mpchain = 3;
   nc_tchain = nc_pchain = 1;
   mtk_flag = 1;
@@ -242,22 +240,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
       else if (strcmp(arg[iarg+1],"none") == 0) pcouple = NONE;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-
-    } else if (strcmp(arg[iarg],"dilate") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      if (strcmp(arg[iarg+1],"all") == 0) allremap = 1;
-      else {
-        allremap = 0;
-        delete [] id_dilate;
-        int n = strlen(arg[iarg+1]) + 1;
-        id_dilate = new char[n];
-        strcpy(id_dilate,arg[iarg+1]);
-        int idilate = group->find(id_dilate);
-        if (idilate == -1)
-          error->all(FLERR,"Fix nvt/npt/nph dilate group ID does not exist");
-      }
-      iarg += 2;
-
     } else if (strcmp(arg[iarg],"tchain") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       mtchain = force->inumeric(FLERR,arg[iarg+1]);
@@ -446,7 +428,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
     if (p_flag[0] || p_flag[1] || p_flag[2]) box_change_size = 1;
     if (p_flag[3] || p_flag[4] || p_flag[5]) box_change_shape = 1;
     no_change_box = 1;
-    if (allremap == 0) restart_pbc = 1;
 
     // pstyle = TRICLINIC if any off-diagonal term is controlled -> 6 dof
     // else pstyle = ISO if XYZ coupling or XY coupling in 2d -> 1 dof
@@ -561,6 +542,10 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
     if (strcmp(modify->fix[ifix]->style,"drude") == 0) break;
   if (ifix == modify->nfix) error->all(FLERR, "fix tgnh/drude requires fix drude");
   fix_drude = (FixDrude *) modify->fix[ifix];
+
+  // make sure ghost atoms have velocity
+  if (!comm->ghost_velocity)
+    error->all(FLERR,"fix tgnh/drude requires ghost velocities. Use comm_modify vel yes");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -569,7 +554,6 @@ FixTGNHDrude::~FixTGNHDrude()
 {
   if (copymode) return;
 
-  delete [] id_dilate;
   delete [] rfix;
 
   delete irregular;
@@ -624,15 +608,6 @@ int FixTGNHDrude::setmask()
 
 void FixTGNHDrude::init()
 {
-  // recheck that dilate group has not been deleted
-
-  if (allremap == 0) {
-    int idilate = group->find(id_dilate);
-    if (idilate == -1)
-      error->all(FLERR,"Fix nvt/npt/nph dilate group ID does not exist");
-    dilate_group_bit = group->bitmask[idilate];
-  }
-
   // ensure no conflict with fix deform
 
   if (pstat_flag)
@@ -753,6 +728,22 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   MPI_Allreduce(&n_drude_tmp, &n_drude, 1, MPI_LMP_TAGINT, MPI_SUM, world);
   MPI_Allreduce(&id_mol, &n_mol, 1, MPI_LMP_TAGINT, MPI_MAX, world);
 
+  int *flag_mol = new int[n_mol + 1];
+  int *flag_mol_tmp = new int[n_mol + 1];
+  memset(flag_mol_tmp, 0, sizeof(int) * (n_mol + 1));
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
+      flag_mol_tmp[molecule[i]] = 1;
+    }
+  }
+  MPI_Allreduce(flag_mol_tmp, flag_mol, 1, MPI_INT, MPI_SUM, world);
+  int n_mol_in_group = 0;
+  for (int i = 1; i < n_mol + 1; i++) {
+    if (flag_mol[i])
+      n_mol_in_group++;
+  }
+
+
   // length of v_mol set to n_mol+1, so that the subscript start from 1, we can call v_mol[n_mol]
   memory->create(v_mol, n_mol + 1, 3, "fix_tgnh_drude::v_mol");
   memory->create(v_mol_tmp, n_mol + 1, 3, "fix_tgnh_drude::v_mol_tmp");
@@ -769,9 +760,24 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   // DOFs
   t_current = temperature->compute_scalar();
   _tdof = temperature->dof;
-  dof_mol = 3 * n_mol - 3; // remove DOFs of COM motion of the whole system
+  dof_mol = 3 * n_mol_in_group;
+  if (n_mol_in_group > 1)
+    dof_mol -= 3; // remove DOFs of COM motion of the whole system
   dof_drude = 3 * n_drude;
   dof_int = _tdof - dof_mol - dof_drude;
+
+  if (comm->me == 0) {
+    if (screen) {
+      fprintf(screen, "TGNHC thermostat for Drude model\n");
+      fprintf(screen, "  DOFs of molecules, atoms and dipoles: %.1f %.1f %.1f\n",
+              dof_mol, dof_int, dof_drude);
+    }
+    if (logfile) {
+      fprintf(logfile, "TGNHC thermostat for Drude model\n");
+      fprintf(logfile, "  DOFs of molecules, atoms and dipoles: %.1f %.1f %.1f\n",
+              dof_mol, dof_int, dof_drude);
+    }
+  }
 }
 
 void FixTGNHDrude::setup(int /*vflag*/)
@@ -1115,12 +1121,7 @@ void FixTGNHDrude::remap()
 
   // convert pertinent atoms and rigid bodies to lamda coords
 
-  if (allremap) domain->x2lamda(nlocal);
-  else {
-    for (i = 0; i < nlocal; i++)
-      if (mask[i] & dilate_group_bit)
-        domain->x2lamda(x[i],x[i]);
-  }
+  domain->x2lamda(nlocal);
 
   if (nrigid)
     for (i = 0; i < nrigid; i++)
@@ -1262,12 +1263,7 @@ void FixTGNHDrude::remap()
 
   // convert pertinent atoms and rigid bodies back to box coords
 
-  if (allremap) domain->lamda2x(nlocal);
-  else {
-    for (i = 0; i < nlocal; i++)
-      if (mask[i] & dilate_group_bit)
-        domain->lamda2x(x[i],x[i]);
-  }
+  domain->lamda2x(nlocal);
 
   if (nrigid)
     for (i = 0; i < nrigid; i++)
@@ -1303,7 +1299,7 @@ void FixTGNHDrude::write_restart(FILE *fp)
 int FixTGNHDrude::size_restart_global()
 {
   int nsize = 2;
-  if (tstat_flag) nsize += 1 + 2*mtchain;
+  if (tstat_flag) nsize += 1 + 6*mtchain;
   if (pstat_flag) {
     nsize += 16 + 2*mpchain;
     if (deviatoric_flag) nsize += 6;
