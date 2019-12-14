@@ -45,6 +45,21 @@ class ComputeTempDrude : public Compute {
 
   void dof_compute();
 
+  /* ------------------------------------
+   * copy from fix_tgnh.cpp
+   * ------------------------------------ */
+  int n_mol;                            // number of molecules in the system
+  double *mass_mol;
+  double dof_mol, dof_int;   // DOFs of different modes in the fix group
+  double **v_mol, **v_mol_tmp;
+
+  void compute_temp_mol_int_drude();
+  double t_mol, t_int, t_drude;
+  double ke2mol, ke2int, ke2drude;
+  /* ------------------------------------
+   * end of copy
+   * ------------------------------------ */
+
 };
 
 }

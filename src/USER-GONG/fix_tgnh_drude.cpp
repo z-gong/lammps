@@ -1712,7 +1712,7 @@ void FixTGNHDrude::nhc_temp_integrate()
 {
   compute_temp_mol_int_drude();
 
-  // update masses of thermostat in cause target temperature changes
+  // update masses of thermostat in case target temperature changes
   etamol_mass[0] = ke2mol_target / (t_freq*t_freq);
   etaint_mass[0] = ke2int_target / (t_freq*t_freq);
   for (int ich = 1; ich < mtchain; ich++){
@@ -1998,7 +1998,12 @@ void FixTGNHDrude::nh_v_temp()
         } else if (drudetype[type[i]] == CORE_TYPE) {
           ci = i;
           di = atom->map(drudeid[i]);
-          if (di == -1) printf("FUCK %d", atom->tag[i]);
+          if (di == -1) {
+            char buffer[1024];
+            sprintf(buffer, "Drude atom %i and core atom %i are not in the same processor",
+                    atom->tag[i], drudeid[i]);
+            error->all(FLERR, buffer);
+          }
           mass_core = mass[type[ci]];
           mass_drude = mass[type[di]];
           mass_com = mass_core + mass_drude;

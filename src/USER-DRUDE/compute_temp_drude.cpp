@@ -22,6 +22,7 @@
 #include "domain.h"
 #include "error.h"
 #include "comm.h"
+#include "memory.h"
 
 using namespace LAMMPS_NS;
 
@@ -35,6 +36,18 @@ ComputeTempDrude::ComputeTempDrude(LAMMPS *lmp, int narg, char **arg) :
   vector_flag = 1;
   scalar_flag = 1;
   size_vector = 6;
+
+  /* ---------------------
+   * change size_vector to 8
+   * t_core, t_drude, t_molecule, t_internal,
+   * dof_core, dof_drude, dof_molecule, dof_internal
+   * ke_core, ke_drude, ke_molecule, ke_internal
+   */
+  size_vector = 12;
+  /* ----------------------
+   * end of change
+   */
+
   extscalar = 0;
   extvector = -1;
   extlist = new int[6];
@@ -107,6 +120,63 @@ void ComputeTempDrude::dof_compute()
   dof_core -= fix_dof;
   vector[2] = dof_core;
   vector[3] = dof_drude;
+
+  /* ------------------------------------
+   * copy from fix_tgnh.cpp
+   * ------------------------------------ */
+  double *mass = atom->mass;
+  int *mask = atom->mask;
+  int *molecule = atom->molecule;
+  int n_drude, n_drude_tmp = 0;
+  tagint id_mol = 0, n_mol_in_group = 0;
+
+  for (int i = 0; i < atom->nlocal; i++) {
+    // molecule id starts from 1. max(id_mol) equals to the number of molecules in the system
+    id_mol = std::max(id_mol, molecule[i]);
+    if (mask[i] & groupbit) {
+      if (drudetype[type[i]] == DRUDE_TYPE)
+        n_drude_tmp += 1;
+    }
+  }
+  MPI_Allreduce(&n_drude_tmp, &n_drude, 1, MPI_LMP_TAGINT, MPI_SUM, world);
+  MPI_Allreduce(&id_mol, &n_mol, 1, MPI_LMP_TAGINT, MPI_MAX, world);
+
+  // use flag_mol to determin the number of molecules in the fix group
+  int *flag_mol = new int[n_mol + 1];
+  int *flag_mol_tmp = new int[n_mol + 1];
+  memset(flag_mol_tmp, 0, sizeof(int) * (n_mol + 1));
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
+      flag_mol_tmp[molecule[i]] = 1;
+    }
+  }
+  MPI_Allreduce(flag_mol_tmp, flag_mol, n_mol + 1, MPI_INT, MPI_SUM, world);
+  for (int i = 1; i < n_mol + 1; i++) {
+    if (flag_mol[i])
+      n_mol_in_group++;
+  }
+
+  // length of v_mol set to n_mol+1, so that the subscript start from 1, we can call v_mol[n_mol]
+  memory->create(v_mol, n_mol + 1, 3, "compute_temp_drude::v_mol");
+  memory->create(v_mol_tmp, n_mol + 1, 3, "compute_temp_drude::v_mol_tmp");
+  memory->create(mass_mol, n_mol + 1, "compute_temp_drude::mass_mol");
+
+  auto *mass_tmp = new double[n_mol + 1];
+  memset(mass_tmp, 0, sizeof(double) * (n_mol + 1));
+  for (int i = 0; i < atom->nlocal; i++) {
+    id_mol = molecule[i];
+    mass_tmp[id_mol] += mass[type[i]];
+  }
+  MPI_Allreduce(mass_tmp, mass_mol, n_mol + 1, MPI_DOUBLE, MPI_SUM, world);
+
+  // DOFs
+  dof_mol = 3 * n_mol_in_group;
+  if (n_mol_in_group > 1)
+    dof_mol -= 3; // remove DOFs of COM motion of the whole system
+  dof_int = dof_core - dof_mol;
+  /* ------------------------------------
+   * end of copy
+   * ------------------------------------ */
 }
 
 /* ---------------------------------------------------------------------- */
@@ -211,6 +281,26 @@ void ComputeTempDrude::compute_vector()
     vector[1] = temp_drude;
     vector[4] = kineng_core;
     vector[5] = kineng_drude;
+
+    /* --------------------------------
+     * change vector output
+     */
+    compute_temp_mol_int_drude();
+    vector[0] = temp_core;
+    vector[1] = temp_drude;
+    vector[2] = t_mol;
+    vector[3] = t_int;
+    vector[4] = dof_core;
+    vector[5] = dof_drude;
+    vector[6] = dof_mol;
+    vector[7] = dof_int;
+    vector[8] = kineng_core;
+    vector[9] = kineng_drude;
+    vector[10] = ke2mol / 2;
+    vector[11] = ke2int / 2;
+  /* ---------------------------------
+   * end of change
+   */
 }
 
 double ComputeTempDrude::compute_scalar(){
@@ -219,3 +309,75 @@ double ComputeTempDrude::compute_scalar(){
     return scalar;
 }
 
+/* ------------------------------------
+ * copy from fix_tgnh.cpp
+ * ------------------------------------ */
+void ComputeTempDrude::compute_temp_mol_int_drude() {
+  double **v = atom->v;
+  double *mass = atom->mass;
+  int *molecule = atom->molecule;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  int *drudetype = fix_drude->drudetype;
+  int *drudeid = fix_drude->drudeid;
+  int imol, ci, di;
+  double mass_com, mass_reduced, mass_core, mass_drude;
+  double vint, vcom, vrel;
+  double ke2_int_tmp = 0, ke2_drude_tmp = 0;
+  double boltz = force->boltz;
+
+  memset(*v_mol_tmp, 0, sizeof(double) * (n_mol + 1) * 3); // the length of v_mol is n_mol+1
+
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
+      imol = molecule[i];
+      for (int k = 0; k < 3; k++)
+        v_mol_tmp[imol][k] += v[i][k] * mass[type[i]];
+    }
+  }
+  MPI_Allreduce(*v_mol_tmp, *v_mol, (n_mol + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
+
+  ke2mol = 0;
+  for (int i = 1; i < n_mol + 1; i++) {
+    for (int k = 0; k < 3; k++) {
+      v_mol[i][k] /= mass_mol[i];
+      ke2mol += mass_mol[i] * (v_mol[i][k] * v_mol[i][k]);
+    }
+  }
+  ke2mol *= force->mvv2e;
+  t_mol = ke2mol / dof_mol / boltz;
+
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
+      imol = molecule[i];
+      if (drudetype[type[i]] == NOPOL_TYPE) {
+        for (int k = 0; k < 3; k++) {
+          vint = v[i][k] - v_mol[imol][k];
+          ke2_int_tmp += mass[type[i]] * vint * vint;
+        }
+      } else if (drudetype[type[i]] == CORE_TYPE) {
+        di = atom->map(drudeid[i]);
+        mass_core = mass[type[i]];
+        mass_drude = mass[type[di]];
+        mass_com = mass_core + mass_drude;
+        mass_reduced = mass_core * mass_drude / mass_com;
+        for (int k = 0; k < 3; k++) {
+          vcom = (mass_core * v[i][k] + mass_drude * v[di][k]) / mass_com;
+          vint = vcom - v_mol[imol][k];
+          ke2_int_tmp += mass_com * vint * vint;
+          vrel = v[di][k] - v[i][k];
+          ke2_drude_tmp += mass_reduced * vrel * vrel;
+        }
+      }
+    }
+  }
+  MPI_Allreduce(&ke2_int_tmp, &ke2int, 1, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&ke2_drude_tmp, &ke2drude, 1, MPI_DOUBLE, MPI_SUM, world);
+  ke2int *= force->mvv2e;
+  ke2drude *= force->mvv2e;
+  t_int = ke2int / dof_int / boltz;
+  t_drude = ke2drude / dof_drude / boltz;
+}
+/* ------------------------------------
+ * end of copy
+ * ------------------------------------ */
