@@ -55,7 +55,7 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
   restart_global = 1;
-  dynamic_group_allow = 1;
+  dynamic_group_allow = 0;
   time_integrate = 1;
   scalar_flag = 1;
   vector_flag = 1;
@@ -301,21 +301,6 @@ FixTGNHDrude::FixTGNHDrude(LAMMPS *lmp, int narg, char **arg) :
       fixedpoint[1] = force->numeric(FLERR,arg[iarg+2]);
       fixedpoint[2] = force->numeric(FLERR,arg[iarg+3]);
       iarg += 4;
-
-    // disc keyword is also parsed in fix/nh/sphere
-
-    } else if (strcmp(arg[iarg],"disc") == 0) {
-      iarg++;
-
-    // keywords erate, strain, and ext are also parsed in fix/nh/uef
-
-    } else if (strcmp(arg[iarg],"erate") == 0) {
-      iarg += 3;
-    } else if (strcmp(arg[iarg],"strain") == 0) {
-      iarg += 3;
-    } else if (strcmp(arg[iarg],"ext") == 0) {
-      iarg += 2;
-
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
@@ -1498,6 +1483,7 @@ double FixTGNHDrude::compute_scalar()
   double volume;
   double energy;
   double kt = boltz * t_target;
+  double kt_drude = boltz * tdrude_target;
   double lkt_press = 0.0;
   int ich;
   if (dimension == 3) volume = domain->xprd * domain->yprd * domain->zprd;
@@ -1516,8 +1502,13 @@ double FixTGNHDrude::compute_scalar()
 
   if (tstat_flag) {
     energy += ke2mol_target * etamol[0] + 0.5 * etamol_mass[0] * etamol_dot[0] * etamol_dot[0];
-    for (ich = 1; ich < mtchain; ich++)
+    energy += ke2int_target * etaint[0] + 0.5 * etaint_mass[0] * etaint_dot[0] * etaint_dot[0];
+    energy += ke2drude_target * etadrude[0] + 0.5 * etadrude_mass[0] * etadrude_dot[0] * etadrude_dot[0];
+    for (ich = 1; ich < mtchain; ich++){
       energy += kt * etamol[ich] + 0.5*etamol_mass[ich]*etamol_dot[ich]*etamol_dot[ich];
+      energy += kt * etaint[ich] + 0.5*etaint_mass[ich]*etaint_dot[ich]*etaint_dot[ich];
+      energy += kt_drude * etadrude[ich] + 0.5*etadrude_mass[ich]*etadrude_dot[ich]*etadrude_dot[ich];
+    }
   }
 
   // barostat energy is equivalent to Eq. (8) in
@@ -1603,41 +1594,6 @@ void FixTGNHDrude::reset_dt()
     dto = 0.5*step_respa[0];
 }
 
-/* ----------------------------------------------------------------------
-   extract thermostat properties
-------------------------------------------------------------------------- */
-
-void *FixTGNHDrude::extract(const char *str, int &dim)
-{
-  dim=0;
-  if (tstat_flag && strcmp(str,"t_target") == 0) {
-    return &t_target;
-  } else if (tstat_flag && strcmp(str,"t_start") == 0) {
-    return &t_start;
-  } else if (tstat_flag && strcmp(str,"t_stop") == 0) {
-    return &t_stop;
-  } else if (tstat_flag && strcmp(str,"mtchain") == 0) {
-    return &mtchain;
-  } else if (pstat_flag && strcmp(str,"mpchain") == 0) {
-    return &mtchain;
-  }
-  dim=1;
-  if (tstat_flag && strcmp(str,"etamol") == 0) {
-    return &etamol;
-  } else if (pstat_flag && strcmp(str,"etap") == 0) {
-    return &etap;
-  } else if (pstat_flag && strcmp(str,"p_flag") == 0) {
-    return &p_flag;
-  } else if (pstat_flag && strcmp(str,"p_start") == 0) {
-    return &p_start;
-  } else if (pstat_flag && strcmp(str,"p_stop") == 0) {
-    return &p_stop;
-  } else if (pstat_flag && strcmp(str,"p_target") == 0) {
-    return &p_target;
-  }
-  return NULL;
-}
-
 void FixTGNHDrude::compute_temp_mol_int_drude() {
   double **v = atom->v;
   double *mass = atom->mass;
@@ -1721,22 +1677,22 @@ void FixTGNHDrude::nhc_temp_integrate()
   }
 
   // thermostat for molecular COM
-  factor_eta_mol = get_scale_factor(etamol, etamol_dot, etamol_dotdot, etamol_mass,
-                                    ke2mol, ke2mol_target, t_target);
-  factor_eta_int = get_scale_factor(etaint, etaint_dot, etaint_dotdot, etaint_mass,
-                                    ke2int, ke2int_target, t_target);
-  factor_eta_drude = get_scale_factor(etadrude, etadrude_dot, etadrude_dotdot, etadrude_mass,
-                                      ke2drude, ke2drude_target, tdrude_target);
+  factor_eta_mol = propagate(etamol, etamol_dot, etamol_dotdot, etamol_mass,
+                             ke2mol, ke2mol_target, t_target);
+  factor_eta_int = propagate(etaint, etaint_dot, etaint_dotdot, etaint_mass,
+                             ke2int, ke2int_target, t_target);
+  factor_eta_drude = propagate(etadrude, etadrude_dot, etadrude_dotdot, etadrude_mass,
+                               ke2drude, ke2drude_target, tdrude_target);
 
   nh_v_temp();
 }
 
-double FixTGNHDrude::get_scale_factor(double *eta, double *eta_dot, double *eta_dotdot, const double *eta_mass,
-                                      double ke2, double ke2_target, double tt) {
+double FixTGNHDrude::propagate(double *eta, double *eta_dot, double *eta_dotdot, const double *eta_mass,
+                               double ke2, double ke2_target, double tt) {
   int ich;
   double expfac;
   double ncfac = 1.0 / nc_tchain;
-  double factor_eta = 0;
+  double factor_eta = 1.0;
 
   eta_dotdot[0] = (ke2 - ke2_target) / eta_mass[0];
   for (int iloop = 0; iloop < nc_tchain; iloop++) {
@@ -1750,7 +1706,7 @@ double FixTGNHDrude::get_scale_factor(double *eta, double *eta_dot, double *eta_
     eta_dot[0] *= expfac;
     eta_dot[0] += eta_dotdot[0] * ncfac * dt4;
     eta_dot[0] *= expfac;
-    factor_eta = exp(-ncfac * dthalf * eta_dot[0]);
+    factor_eta *= exp(-ncfac * dthalf * eta_dot[0]);
 
     for (ich = 0; ich < mtchain; ich++)
       eta[ich] += ncfac * dthalf * eta_dot[ich];
@@ -1762,7 +1718,8 @@ double FixTGNHDrude::get_scale_factor(double *eta, double *eta_dot, double *eta_
     for (ich = 1; ich < mtchain; ich++) {
       expfac = exp(-ncfac * dt8 * eta_dot[ich + 1]);
       eta_dot[ich] *= expfac;
-      eta_dotdot[ich] = (eta_mass[ich - 1] * eta_dot[ich - 1] * eta_dot[ich - 1] - boltz * tt) / eta_mass[ich];
+      eta_dotdot[ich] = (eta_mass[ich - 1] * eta_dot[ich - 1] * eta_dot[ich - 1]
+                         - boltz * tt) / eta_mass[ich];
       eta_dot[ich] += eta_dotdot[ich] * ncfac * dt4;
       eta_dot[ich] *= expfac;
     }
@@ -1781,6 +1738,24 @@ void FixTGNHDrude::nhc_press_integrate()
   double expfac,factor_etap,kecurrent;
   double kt = boltz * t_target;
   double lkt_press;
+
+  // Update masses, to preserve initial freq, if t_target changed
+  double nkt = (atom->natoms + 1) * kt;
+  for (int i = 0; i < 3; i++)
+    if (p_flag[i])
+      omega_mass[i] = nkt / (p_freq[i] * p_freq[i]);
+  if (pstyle == TRICLINIC) {
+    for (int i = 3; i < 6; i++)
+      if (p_flag[i]) omega_mass[i] = nkt / (p_freq[i] * p_freq[i]);
+  }
+  if (mpchain) {
+    etap_mass[0] = kt / (p_freq_max * p_freq_max);
+    for (int ich = 1; ich < mpchain; ich++)
+      etap_mass[ich] = kt / (p_freq_max * p_freq_max);
+    for (int ich = 1; ich < mpchain; ich++)
+      etap_dotdot[ich] = (etap_mass[ich - 1] * etap_dot[ich - 1] * etap_dot[ich - 1]
+                          - kt) / etap_mass[ich];
+  }
 
   kecurrent = 0.0;
   pdof = 0;
@@ -1848,8 +1823,7 @@ void FixTGNHDrude::nhc_press_integrate()
       expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
       etap_dotdot[ich] =
-        (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] - boltz*t_target) /
-        etap_mass[ich];
+        (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] - kt) / etap_mass[ich];
       etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
       etap_dot[ich] *= expfac;
     }

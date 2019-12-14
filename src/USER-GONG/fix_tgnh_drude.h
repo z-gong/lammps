@@ -39,7 +39,6 @@ class FixTGNHDrude : public Fix {
   int modify_param(int, char **);
   void reset_target(double);
   void reset_dt();
-  virtual void *extract(const char*,int &);
   double memory_usage();
 
  protected:
@@ -154,7 +153,7 @@ class FixTGNHDrude : public Fix {
   double ke2mol, ke2int, ke2drude;
   double ke2mol_target, ke2int_target, ke2drude_target;
   double factor_eta_mol, factor_eta_int, factor_eta_drude;
-  double get_scale_factor(double *, double *, double *, const double *, double , double, double);
+  double propagate(double *, double *, double *, const double *, double , double, double);
 };
 
 }
