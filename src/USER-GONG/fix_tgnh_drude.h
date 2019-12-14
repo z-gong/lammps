@@ -143,9 +143,9 @@ class FixTGNHDrude : public Fix {
 
 
   class FixDrude * fix_drude;
-  int n_mol;
+  int n_mol;                            // number of molecules in the system
   double *mass_mol;
-  double dof_mol, dof_int, dof_drude;
+  double dof_mol, dof_int, dof_drude;   // DOFs of different modes in the fix group
   void setup_mol_mass_dof();
   double **v_mol, **v_mol_tmp;
   void compute_temp_mol_int_drude();

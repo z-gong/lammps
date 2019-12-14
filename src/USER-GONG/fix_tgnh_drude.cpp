@@ -715,10 +715,10 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   int *type = atom->type;
   int *drudetype = fix_drude->drudetype;
   int n_drude, n_drude_tmp = 0;
-  tagint id_mol = -1;
+  tagint id_mol = 0, n_mol_in_group = 0;
 
   for (int i = 0; i < atom->nlocal; i++) {
-    // record all the molecules although some of them are not in the group
+    // molecule id starts from 1. max(id_mol) equals to the number of molecules in the system
     id_mol = std::max(id_mol, molecule[i]);
     if (mask[i] & groupbit) {
       if (drudetype[type[i]] == DRUDE_TYPE)
@@ -728,6 +728,7 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   MPI_Allreduce(&n_drude_tmp, &n_drude, 1, MPI_LMP_TAGINT, MPI_SUM, world);
   MPI_Allreduce(&id_mol, &n_mol, 1, MPI_LMP_TAGINT, MPI_MAX, world);
 
+  // use flag_mol to determin the number of molecules in the fix group
   int *flag_mol = new int[n_mol + 1];
   int *flag_mol_tmp = new int[n_mol + 1];
   memset(flag_mol_tmp, 0, sizeof(int) * (n_mol + 1));
@@ -736,13 +737,11 @@ void FixTGNHDrude::setup_mol_mass_dof() {
       flag_mol_tmp[molecule[i]] = 1;
     }
   }
-  MPI_Allreduce(flag_mol_tmp, flag_mol, 1, MPI_INT, MPI_SUM, world);
-  int n_mol_in_group = 0;
+  MPI_Allreduce(flag_mol_tmp, flag_mol, n_mol + 1, MPI_INT, MPI_SUM, world);
   for (int i = 1; i < n_mol + 1; i++) {
     if (flag_mol[i])
       n_mol_in_group++;
   }
-
 
   // length of v_mol set to n_mol+1, so that the subscript start from 1, we can call v_mol[n_mol]
   memory->create(v_mol, n_mol + 1, 3, "fix_tgnh_drude::v_mol");
@@ -778,6 +777,8 @@ void FixTGNHDrude::setup_mol_mass_dof() {
               dof_mol, dof_int, dof_drude);
     }
   }
+  if (dof_mol <=0 or dof_int <=0 or dof_drude <=0)
+    error->all(FLERR, "TGNHC thermostat requires DOFs of molecules, atoms and dipoles larger than 0");
 }
 
 void FixTGNHDrude::setup(int /*vflag*/)
