@@ -1611,9 +1611,15 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
 
   for (int i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
+      if (which == BIAS)
+        temperature->remove_bias(i, v[i]);
+
       imol = molecule[i];
       for (int k = 0; k < 3; k++)
         v_mol_tmp[imol][k] += v[i][k] * mass[type[i]];
+
+      if (which == BIAS)
+        temperature->restore_bias(i, v[i]);
     }
   }
   MPI_Allreduce(*v_mol_tmp, *v_mol, (n_mol + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
@@ -1959,46 +1965,51 @@ void FixTGNHDrude::nh_v_temp()
   double mass_com, mass_core, mass_drude;
   double vint, vcom, vrel;
 
-  if (which == NOBIAS) {
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (mask[i] & groupbit) {
-        imol = molecule[i];
-        if (drudetype[type[i]] == NOPOL_TYPE) {
-          for (int k = 0; k < 3; k++) {
-            vint = v[i][k] - v_mol[imol][k];
-            vint *= factor_eta_int;
-            v[i][k] = v_mol[imol][k] * factor_eta_mol + vint;
-          }
-        } else if (drudetype[type[i]] == CORE_TYPE) {
-          ci = i;
-          di = atom->map(drudeid[i]);
-          if (di == -1) {
-            char buffer[1024];
-            sprintf(buffer, "Drude atom %i and core atom %i are not in the same processor",
-                    atom->tag[i], drudeid[i]);
-            error->all(FLERR, buffer);
-          }
-          mass_core = mass[type[ci]];
-          mass_drude = mass[type[di]];
-          mass_com = mass_core + mass_drude;
-          for (int k = 0; k < 3; k++) {
-            vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
-            vint = vcom - v_mol[imol][k];
-            vrel = v[di][k] - v[ci][k];
-            vint *= factor_eta_int;
-            vrel *= factor_eta_drude;
-            v[ci][k] = v_mol[imol][k] * factor_eta_mol + vint - vrel * mass_drude / mass_com;
-            v[di][k] = v_mol[imol][k] * factor_eta_mol + vint + vrel * mass_core / mass_com;
-          }
+  /* If there are velocity bias, need to remove them before scale velocity
+   * Have to call remove_bias at the innermost loop, because drude atom may be a ghost
+   */
+  for (int i = 0; i < atom->nlocal; i++) {
+    if (mask[i] & groupbit) {
+      imol = molecule[i];
+      if (drudetype[type[i]] == NOPOL_TYPE) {
+        if (which == BIAS)
+          temperature->remove_bias(i, v[i]);
+        for (int k = 0; k < 3; k++) {
+          vint = v[i][k] - v_mol[imol][k];
+          vint *= factor_eta_int;
+          v[i][k] = v_mol[imol][k] * factor_eta_mol + vint;
         }
-      }
-    }
-  } else if (which == BIAS) {
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (mask[i] & groupbit) {
-        temperature->remove_bias(i,v[i]);
-        // TODO
-        temperature->restore_bias(i,v[i]);
+        if (which == BIAS)
+          temperature->restore_bias(i, v[i]);
+      } else if (drudetype[type[i]] == CORE_TYPE) {
+        ci = i;
+        di = atom->map(drudeid[i]);
+        if (di == -1) {
+          char buffer[1024];
+          sprintf(buffer, "Drude atom %i and core atom %i are not in the same processor",
+                  atom->tag[i], drudeid[i]);
+          error->all(FLERR, buffer);
+        }
+        if (which == BIAS) {
+          temperature->remove_bias(ci, v[ci]);
+          temperature->remove_bias(di, v[di]);
+        }
+        mass_core = mass[type[ci]];
+        mass_drude = mass[type[di]];
+        mass_com = mass_core + mass_drude;
+        for (int k = 0; k < 3; k++) {
+          vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
+          vint = vcom - v_mol[imol][k];
+          vrel = v[di][k] - v[ci][k];
+          vint *= factor_eta_int;
+          vrel *= factor_eta_drude;
+          v[ci][k] = v_mol[imol][k] * factor_eta_mol + vint - vrel * mass_drude / mass_com;
+          v[di][k] = v_mol[imol][k] * factor_eta_mol + vint + vrel * mass_core / mass_com;
+        }
+        if (which == BIAS) {
+          temperature->restore_bias(ci, v[ci]);
+          temperature->restore_bias(di, v[di]);
+        }
       }
     }
   }
