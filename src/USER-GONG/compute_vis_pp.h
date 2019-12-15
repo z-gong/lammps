@@ -13,21 +13,21 @@
 
 #ifdef COMPUTE_CLASS
 
-ComputeStyle(ppm,ComputePPM)
+ComputeStyle(vis/pp,ComputeVisPP)
 
 #else
 
-#ifndef LMP_COMPUTE_PPM_H
-#define LMP_COMPUTE_PPM_H
+#ifndef LMP_COMPUTE_VIS_PP_H
+#define LMP_COMPUTE_VIS_PP_H
 
 #include "compute.h"
 
 namespace LAMMPS_NS {
 
-class ComputePPM : public Compute {
+class ComputeVisPP : public Compute {
  public:
-  ComputePPM(class LAMMPS *, int, char **);
-  virtual ~ComputePPM();
+  ComputeVisPP(class LAMMPS *, int, char **);
+  virtual ~ComputeVisPP();
   void init() {}
   void setup();
   virtual double compute_scalar();

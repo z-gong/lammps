@@ -13,21 +13,21 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(ppm,FixPPM)
+FixStyle(vis/pp,FixVisPP)
 
 #else
 
-#ifndef LMP_FIX_PPM_H
-#define LMP_FIX_PPM_H
+#ifndef LMP_FIX_VIS_PP_H
+#define LMP_FIX_VIS_PP_H
 
 #include "fix.h"
 
 namespace LAMMPS_NS {
 
-class FixPPM: public Fix {
+class FixVisPP: public Fix {
  public:
-  FixPPM(class LAMMPS *, int, char **);
-  virtual ~FixPPM();
+  FixVisPP(class LAMMPS *, int, char **);
+  virtual ~FixVisPP();
   int setmask();
   virtual void init();
   void setup(int);
@@ -40,7 +40,7 @@ class FixPPM: public Fix {
   double memory_usage();
 
  protected:
-  double xvalue,yvalue,zvalue;
+  double xvalue;
   int varflag,iregion;
   char *xstr,*ystr,*zstr;
   char *idregion;

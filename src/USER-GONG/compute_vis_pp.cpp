@@ -13,7 +13,7 @@
 
 #include <mpi.h>
 #include <string.h>
-#include "compute_ppm.h"
+#include "compute_vis_pp.h"
 #include "atom.h"
 #include "update.h"
 #include "force.h"
@@ -26,7 +26,7 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputePPM::ComputePPM(LAMMPS *lmp, int narg, char **arg) :
+ComputeVisPP::ComputeVisPP(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg)
 {
   if (narg != 3) error->all(FLERR,"Illegal compute temp command");
@@ -46,7 +46,7 @@ ComputePPM::ComputePPM(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-ComputePPM::~ComputePPM()
+ComputeVisPP::~ComputeVisPP()
 {
   if (!copymode)
     delete [] vector;
@@ -54,7 +54,7 @@ ComputePPM::~ComputePPM()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputePPM::setup()
+void ComputeVisPP::setup()
 {
   dynamic = 0;
   if (dynamic_user || group->dynamic[igroup]) dynamic = 1;
@@ -63,7 +63,7 @@ void ComputePPM::setup()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputePPM::dof_compute()
+void ComputeVisPP::dof_compute()
 {
   adjust_dof_fix();
   natoms_temp = group->count(igroup);
@@ -74,7 +74,7 @@ void ComputePPM::dof_compute()
 }
 
 /* ---------------------------------------------------------------------- */
-void ComputePPM::calc_V()
+void ComputeVisPP::calc_V()
 {
   double zlo = domain->boxlo[2];
   double zhi = domain->boxhi[2];
@@ -107,7 +107,7 @@ void ComputePPM::calc_V()
 }
 /* ---------------------------------------------------------------------- */
 
-double ComputePPM::compute_scalar()
+double ComputeVisPP::compute_scalar()
 {
   invoked_scalar = update->ntimestep;
 
@@ -147,7 +147,7 @@ double ComputePPM::compute_scalar()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputePPM::compute_vector()
+void ComputeVisPP::compute_vector()
 {
   int i;
 
@@ -193,7 +193,7 @@ void ComputePPM::compute_vector()
    remove velocity bias from atom I to leave thermal velocity
 ------------------------------------------------------------------------- */
 
-void ComputePPM::remove_bias(int i, double *v)
+void ComputeVisPP::remove_bias(int i, double *v)
 {
 
   double zlo = domain->boxlo[2];
@@ -213,7 +213,7 @@ void ComputePPM::remove_bias(int i, double *v)
    remove velocity bias from atom I to leave thermal velocity
 ------------------------------------------------------------------------- */
 
-void ComputePPM::remove_bias_thr(int i, double *v, double *b)
+void ComputeVisPP::remove_bias_thr(int i, double *v, double *b)
 {
   double zlo = domain->boxlo[2];
   double zhi = domain->boxhi[2];
@@ -232,7 +232,7 @@ void ComputePPM::remove_bias_thr(int i, double *v, double *b)
    remove velocity bias from all atoms to leave thermal velocity
 ------------------------------------------------------------------------- */
 
-void ComputePPM::remove_bias_all()
+void ComputeVisPP::remove_bias_all()
 {
   double zlo = domain->boxlo[2];
   double zhi = domain->boxhi[2];
@@ -258,7 +258,7 @@ void ComputePPM::remove_bias_all()
    assume remove_bias() was previously called
 ------------------------------------------------------------------------- */
 
-void ComputePPM::restore_bias(int i, double *v)
+void ComputeVisPP::restore_bias(int i, double *v)
 {
   v[0] += vbias[0];
   v[1] += vbias[1];
@@ -270,7 +270,7 @@ void ComputePPM::restore_bias(int i, double *v)
    assume remove_bias_thr() was previously called with the same buffer b
 ------------------------------------------------------------------------- */
 
-void ComputePPM::restore_bias_thr(int i, double *v, double *b)
+void ComputeVisPP::restore_bias_thr(int i, double *v, double *b)
 {
   v[0] += b[0];
   v[1] += b[1];
@@ -282,7 +282,7 @@ void ComputePPM::restore_bias_thr(int i, double *v, double *b)
    assume remove_bias_all() was previously called
 ------------------------------------------------------------------------- */
 
-void ComputePPM::restore_bias_all()
+void ComputeVisPP::restore_bias_all()
 {
   double **v = atom->v;
   int *mask = atom->mask;
