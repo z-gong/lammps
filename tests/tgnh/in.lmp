@@ -65,23 +65,21 @@ fix fDRUDE all drude C C N C N D D D
 
 fix fSHAKE gATOMS shake 0.0001 20 0 b 2 3 5
 
-velocity all create ${vTEMP} 12345
+#velocity all create ${vTEMP} 12345
 #velocity all set 0.1 0.2 0.3
 
 #fix fLANG all langevin/drude ${vTEMP} 200.0 200611 ${vTEMP_D} 50.0 260514 zero yes
-#fix fNPH all nph iso ${vPRESS} ${vPRESS} 500.0
+#fix fNPH all nph iso ${vPRESS} ${vPRESS} 1000.0
 #fix fNVE all nve
 
-fix fNVT all tgnvt/drude temp ${vTEMP} ${vTEMP} 50 5.0 10
-#fix fNPT all tgnpt/drude temp ${vTEMP} ${vTEMP} 50 iso ${vPRESS} ${vPRESS} 500
-
-#fix fNVT all nvt temp ${vTEMP} ${vTEMP} 50
+#fix fNVT all tgnvt/drude temp ${vTEMP} ${vTEMP} 100 1.0 100
+fix fNPT all tgnpt/drude temp ${vTEMP} ${vTEMP} 100 1.0 100 iso ${vPRESS} ${vPRESS} 1000
 
 compute cTEMP all temp/drude
 variable elec equal ecoul+elong
 
-thermo_style custom step c_cTEMP[1] press pe evdwl v_elec emol density c_cTEMP[2] temp f_fNVT[1] f_fNVT[2] f_fNVT[3]
-thermo 20
+thermo_style custom step c_cTEMP[1] c_cTEMP[2] c_cTEMP[3] c_cTEMP[4] press pe evdwl v_elec density
+thermo 50
 
-timestep 0.5
+timestep 1
 run 10000
