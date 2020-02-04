@@ -40,6 +40,7 @@ class FixImageQ2D : public Fix {
 
 
   double V, z_cathode, z_anode, z_span; // voltage drop, position of cathode and anode
+  double q_voltage; // charge because of the applied voltage drop
   int n_cathode, n_anode; // number of atoms in cathode and anode
   tagint * img_parent;
   double ** xyz;

@@ -67,10 +67,23 @@ FixImageQ2D::FixImageQ2D(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg
   groupbit_anode= group->bitmask[igroup_anode];
 
   z_anode = force->numeric(FLERR, arg[8]);
-
   z_span = z_anode - z_cathode;
+  q_voltage = V * domain->xprd * domain->yprd / z_span * 8.85419 / 1.60218 * 0.001;
   n_cathode = group->count(igroup_cathode);
   n_anode = group->count(igroup_anode);
+
+  if (comm->me == 0) {
+    if (screen) {
+      fprintf(screen, "Constant potential image charge method\n");
+      fprintf(screen, "  charge %.1f spread on %d cathode atoms and %d anode atoms\n",
+              q_voltage, n_cathode, n_anode);
+    }
+    if (logfile) {
+      fprintf(logfile, "Constant potential image charge method\n");
+      fprintf(logfile, "  charge %.1f spread on %d cathode atoms and %d anode atoms\n",
+              q_voltage, n_cathode, n_anode);
+    }
+  }
 
   memory->create(img_parent, atom->natoms + 1, "fix_image_charge::img_parent");
   memory->create(xyz, atom->natoms + 1, 3, "fix_image_charge::xyz");
@@ -281,8 +294,6 @@ void FixImageQ2D::update_electrode_charges() {
     }
   }
   MPI_Allreduce(q_electrodes_local, q_electrodes, 2, MPI_DOUBLE, MPI_SUM, world);
-
-  double q_voltage = V * domain->xprd * domain->yprd / z_span * 8.85419 / 1.60218 * 0.001;
 
   for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
     if (mask[ii] & groupbit_cathode)
