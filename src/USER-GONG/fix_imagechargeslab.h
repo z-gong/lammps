@@ -13,7 +13,7 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(imageq2d,FixImageQ2D)
+FixStyle(imagechargeslab,FixImageChargeSlab)
 
 #else
 
@@ -24,10 +24,10 @@ FixStyle(imageq2d,FixImageQ2D)
 
 namespace LAMMPS_NS {
 
-class FixImageQ2D : public Fix {
+class FixImageChargeSlab : public Fix {
  public:
-  FixImageQ2D(class LAMMPS *, int, char **);
-  ~FixImageQ2D();
+  FixImageChargeSlab(class LAMMPS *, int, char **);
+  ~FixImageChargeSlab();
   int setmask();
   void init();
   void pre_exchange(int);

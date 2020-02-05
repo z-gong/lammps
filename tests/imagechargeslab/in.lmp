@@ -1,0 +1,55 @@
+# created by fftool
+
+units real
+boundary p p f
+
+atom_style full
+bond_style harmonic
+angle_style harmonic
+dihedral_style opls
+
+special_bonds lj/coul 0.0 0.0 0.5
+
+pair_style lj/cut/coul/long 12.0
+pair_modify mix geometric
+kspace_style pppm 1.0e-5
+kspace_modify slab 3
+
+read_data data.lmp extra/special/per/atom 99
+
+pair_coeff    1    1     0.000000     2.420000  # Hw Hw
+pair_coeff    2    2     0.155425     3.165500  # Ow Ow
+pair_coeff    3    3     0.000000     1.550000  # CA CA
+pair_coeff    4    4     0.000000     1.420000  # HA HA
+
+timestep 1
+
+variable TK equal 600.0
+variable elec equal ecoul+elong
+
+velocity all create ${TK} 12345
+
+group real id 1:12
+group img molecule 5:6
+group plate1 molecule 7
+group plate2 molecule 8
+
+fix wallhi real wall/harmonic zhi  40 100 0 12
+fix walllo real wall/harmonic zlo -10 100 0 12
+
+compute t real temp
+thermo_style custom step c_t press pe evdwl v_elec
+thermo 100
+
+dump TRAJ all atom 100 dump.lammpstrj
+dump_modify TRAJ sort id
+
+dump TRAJ2 all custom 100 dump.custom.lammpstrj id mol type element q xu yu zu
+dump_modify TRAJ2 sort id element H O C H
+
+fix imgq2d real imagechargeslab img 5.0 plate1 0 plate2 30
+# fix imgq2d group_electrolytes imagechargeslab group_images voltage group_cathode z_cathode group_anode z_anode
+
+fix TPSTAT real nvt temp ${TK} ${TK} 100
+
+run 1000
