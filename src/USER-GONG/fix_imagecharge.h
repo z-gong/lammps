@@ -34,9 +34,7 @@ class FixImageCharge : public Fix {
   void pre_force(int);
 
  private:
-  char *group2;
   int igroup2,group2bit;
-
 
   double z0;
   tagint * img_parent;

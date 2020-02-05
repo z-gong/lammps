@@ -34,9 +34,7 @@ using namespace FixConst;
 
 /* ---------------------------------------------------------------------- */
 
-FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
-        Fix(lmp, narg, arg),
-        group2(NULL) {
+FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg) {
   scalar_flag = 0;
   vector_flag = 0;
   size_vector = 4;
@@ -45,16 +43,13 @@ FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
   extvector = 1;
   dynamic_group_allow = 0;
 
-  if (narg != 5) error->all(FLERR, "Illegal fix imgq command");
+  if (narg != 5) error->all(FLERR, "Illegal fix imagecharge command");
 
-  int n = strlen(arg[3]) + 1;
-  group2 = new char[n];
-  strcpy(group2, arg[3]);
   igroup2 = group->find(arg[3]);
   if (igroup2 == -1)
-    error->all(FLERR, "Fix imgq active group ID does not exist");
+    error->all(FLERR, "Fix imagecharge active group ID does not exist");
   if (group->count(igroup) != group->count(igroup2))
-    error->all(FLERR, "Fix imgq number of atoms in image charge group does not equal to active group");
+    error->all(FLERR, "Fix imagecharge number of image atoms does not equal to electrolyte atoms");
   group2bit = group->bitmask[igroup2];
 
   z0 = force->numeric(FLERR, arg[4]);
@@ -70,7 +65,6 @@ FixImageCharge::FixImageCharge(LAMMPS *lmp, int narg, char **arg) :
 /* ---------------------------------------------------------------------- */
 
 FixImageCharge::~FixImageCharge() {
-  delete[] group2;
   memory->destroy(img_parent);
   memory->destroy(xyz);
   memory->destroy(xyz_local);
@@ -138,14 +132,6 @@ void FixImageCharge::build_img_parents() {
     if (flag_parents[i] == 1) tag_parents.push_back(i);
     if (flag_imgs[i] == 1) tag_imgs.push_back(i);
   }
-  // print parent atoms and image particles
-//  if (comm->me == 0) {
-//    printf("Pairs of parent and image atoms\n  ");
-//    for (int i = 0; i < tag_parents.size(); i++) {
-//      printf("%d %d; ", tag_parents[i], tag_imgs[i]);
-//    }
-//    printf("\n");
-//  }
 
   for (int i = 0; i < tag_parents.size(); i++) {
     img_parent[tag_imgs[i]] = tag_parents[i];
@@ -208,16 +194,9 @@ void FixImageCharge::update_img_positions() {
       xyz_local[tag][0] = x[ii][0];
       xyz_local[tag][1] = x[ii][1];
       xyz_local[tag][2] = x[ii][2];
-//      printf("%d %d %d, %f %f %f\n", comm->me, ii, tag, xyz_local[3*tag], xyz_local[3*tag+1], xyz_local[3*tag+2]);
     }
   }
   MPI_Allreduce(*xyz_local, *xyz, (atom->natoms + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
-
-//  if (comm->me == 0){
-//    for (int i = 1; i < atom->natoms + 1; i++) {
-//      printf("%d %d, %f %f %f\n", i, img_parent[i], xyz[3 * i], xyz[3 * i + 1], xyz[3 * i + 2]);
-//    }
-//  }
 
   // update the xyz of image particles
   for (int ii = 0; ii < atom->nlocal; ii++) {
