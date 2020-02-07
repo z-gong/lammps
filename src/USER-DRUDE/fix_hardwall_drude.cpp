@@ -11,7 +11,7 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#include "fix_drude_hardwall.h"
+#include "fix_hardwall_drude.h"
 #include <mpi.h>
 #include <cstring>
 #include "atom.h"
@@ -37,8 +37,8 @@ enum {
 
 /* ---------------------------------------------------------------------- */
 
-FixDrudeHardwall::FixDrudeHardwall(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg) {
-  if (narg != 5) error->all(FLERR, "Illegal fix drude/hardwall command");
+FixHardwallDrude::FixHardwallDrude(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg) {
+  if (narg != 5) error->all(FLERR, "Illegal fix hardwall/drude command");
 
   dynamic_group_allow = 1;
   scalar_flag = 1;
@@ -53,12 +53,12 @@ FixDrudeHardwall::FixDrudeHardwall(LAMMPS *lmp, int narg, char **arg) : Fix(lmp,
 
 /* ---------------------------------------------------------------------- */
 
-FixDrudeHardwall::~FixDrudeHardwall() {
+FixHardwallDrude::~FixHardwallDrude() {
 }
 
 /* ---------------------------------------------------------------------- */
 
-int FixDrudeHardwall::setmask() {
+int FixHardwallDrude::setmask() {
   int mask = 0;
   mask |= POST_INTEGRATE;
   return mask;
@@ -66,17 +66,17 @@ int FixDrudeHardwall::setmask() {
 
 /* ---------------------------------------------------------------------- */
 
-void FixDrudeHardwall::init() {
+void FixHardwallDrude::init() {
   int ifix;
   for (ifix = 0; ifix < modify->nfix; ifix++)
     if (strcmp(modify->fix[ifix]->style, "drude") == 0) break;
-  if (ifix == modify->nfix) error->all(FLERR, "fix drude/hardwall requires fix drude");
+  if (ifix == modify->nfix) error->all(FLERR, "fix hardwall/drude requires fix drude");
   fix_drude = (FixDrude *) modify->fix[ifix];
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixDrudeHardwall::post_integrate() {
+void FixHardwallDrude::post_integrate() {
   double **x = atom->x;
   double **v = atom->v;
   int *type = atom->type;
@@ -107,7 +107,7 @@ void FixDrudeHardwall::post_integrate() {
       if (r <= limit) continue;
       if (r >= limit * 2) {
         char str[1024];
-        sprintf(str, "Distance of Drude pair larger than twice the hardwall limit: %d %d %.4f",
+        sprintf(str, "Distance of Drude pair exceeds twice the hardwall limit: %d %d %.4f",
                 atom->tag[ci], atom->tag[di], r);
         error->all(FLERR, str);
       }
@@ -153,7 +153,7 @@ void FixDrudeHardwall::post_integrate() {
     }
 }
 
-double FixDrudeHardwall::compute_scalar()
+double FixHardwallDrude::compute_scalar()
 {
   int scalar;
   MPI_Allreduce(&n_bad_bond,&scalar,1,MPI_INT,MPI_SUM,world);

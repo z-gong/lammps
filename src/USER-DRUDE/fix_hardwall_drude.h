@@ -13,21 +13,21 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(drude/hardwall,FixDrudeHardwall)
+FixStyle(hardwall/drude,FixHardwallDrude)
 
 #else
 
-#ifndef LMP_FIX_DRUDE_HARDWALL_H
-#define LMP_FIX_DRUDE_HARDWALL_H
+#ifndef LMP_FIX_HARDWALL_DRUDE_H
+#define LMP_FIX_HARDWALL_DRUDE_H
 
 #include "fix.h"
 
 namespace LAMMPS_NS {
 
-class FixDrudeHardwall : public Fix {
+class FixHardwallDrude : public Fix {
  public:
-  FixDrudeHardwall(class LAMMPS *, int, char **);
-  virtual ~FixDrudeHardwall();
+  FixHardwallDrude(class LAMMPS *, int, char **);
+  virtual ~FixHardwallDrude();
   int setmask();
   void init();
   void post_integrate();
