@@ -126,8 +126,13 @@ void FixHardwallDrude::post_integrate() {
         vdrude_normal[k] = v[di][k] - vdrude_bond[k];
       }
 
+      // copy from OpenMM implementation
+      // it's different from the original reference
+      // do not understand why
       double deltaR = r - limit;
-      double dt = deltaR / std::abs(vdrude_bond_scalar - vcore_bond_scalar);
+      double dt = update->dt;
+      if (vdrude_bond_scalar != vcore_bond_scalar)
+        dt = std::min(dt, deltaR / std::abs(vdrude_bond_scalar - vcore_bond_scalar));
       double scale = sqrt(force->boltz * t_drude / mass_drude / force->mvv2e);
 
       vcore_bond_scalar -= vcom_bond_scalar;
