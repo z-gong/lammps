@@ -87,7 +87,7 @@ void FixDrudeHardwall::post_integrate() {
 
   int ci, di;
   double mass_com, mass_core, mass_drude;
-  double vcom[3], vrel[3], bond[3], bondDir[3];
+  double bond[3], bondDir[3];
 
   n_bad_bond = 0;
   for (int i = 0; i < atom->nlocal; i++) {
@@ -99,8 +99,6 @@ void FixDrudeHardwall::post_integrate() {
       mass_drude = mass[type[di]];
       mass_com = mass_core + mass_drude;
       for (int k = 0; k < 3; k++) {
-        vcom[k] = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
-        vrel[k] = v[di][k] - v[ci][k];
         bond[k] = x[di][k] - x[ci][k];
       }
       double r = sqrt(dot(bond, bond));
@@ -127,15 +125,15 @@ void FixDrudeHardwall::post_integrate() {
         vdrude_normal[k] = v[di][k] - vdrude_bond[k];
       }
 
+      double deltaR = r - limit;
+      double dt = deltaR / std::abs(vdrude_bond_scalar - vcore_bond_scalar);
       double scale = sqrt(force->boltz * t_drude / mass_drude / force->mvv2e);
+
       vcore_bond_scalar -= vcom_bond_scalar;
       vdrude_bond_scalar -= vcom_bond_scalar;
 
-      double deltaR = r - limit;
-      double dt = deltaR / abs(vdrude_bond_scalar - vcore_bond_scalar);
-
-      vcore_bond_scalar = -vcore_bond_scalar * mass_drude / abs(vcore_bond_scalar) / mass_com * scale;
-      vdrude_bond_scalar = -vdrude_bond_scalar * mass_core / abs(vdrude_bond_scalar) / mass_com * scale;
+      vcore_bond_scalar = -vcore_bond_scalar * mass_drude / std::abs(vcore_bond_scalar) / mass_com * scale;
+      vdrude_bond_scalar = -vdrude_bond_scalar * mass_core / std::abs(vdrude_bond_scalar) / mass_com * scale;
 
       double dr_core_scalar = deltaR * mass_drude / mass_com + dt * vcore_bond_scalar;
       double dr_drude_scalar = -deltaR * mass_core / mass_com + dt * vdrude_bond_scalar;
