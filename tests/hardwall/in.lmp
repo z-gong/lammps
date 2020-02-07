@@ -44,7 +44,7 @@ fix fNVE all nve
 
 fix hardwall all drude/hardwall 0.2 ${vTEMP_D}
 
-thermo_style custom step cpu c_cTEMP[1] c_cTEMP[2] c_cTEMP[3] c_cTEMP[4] press pe evdwl v_elec density f_hardwall
+thermo_style custom step c_cTEMP[1] c_cTEMP[2] c_cTEMP[3] c_cTEMP[4] press pe evdwl v_elec density f_hardwall
 thermo 1
 
 timestep 1.0

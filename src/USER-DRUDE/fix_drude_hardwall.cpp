@@ -25,6 +25,7 @@
 #include "memory.h"
 #include "error.h"
 #include "force.h"
+#include "neighbor.h"
 #include "fix_drude.h"
 
 using namespace LAMMPS_NS;
@@ -88,36 +89,36 @@ void FixDrudeHardwall::post_integrate() {
   int ci, di;
   double mass_com, mass_core, mass_drude;
   double bond[3], bondDir[3];
+  double vcore_bond[3], vdrude_bond[3], vcore_normal[3], vdrude_normal[3];
 
   n_bad_bond = 0;
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (mask[i] & groupbit) {
-      if (drudetype[type[i]] != CORE_TYPE) continue;
+  for (int i = 0; i < atom->nlocal; i++)
+    if ((mask[i] & groupbit) && drudetype[type[i]] == CORE_TYPE) {
       ci = i;
-      di = atom->map(drudeid[i]);
+      di = domain->closest_image(ci, atom->map(drudeid[ci]));
       mass_core = mass[type[ci]];
       mass_drude = mass[type[di]];
       mass_com = mass_core + mass_drude;
+
       for (int k = 0; k < 3; k++) {
         bond[k] = x[di][k] - x[ci][k];
       }
       double r = sqrt(dot(bond, bond));
       if (r <= limit) continue;
-      if (r > limit * 2){
+      if (r >= limit * 2) {
         char str[1024];
-        sprintf(str, "Distance of Drude pair " TAGINT_FORMAT " " TAGINT_FORMAT
-                     " larger than twice the hard wall limit", atom->tag[ci], atom->tag[di]);
+        sprintf(str, "Distance of Drude pair larger than twice the hardwall limit: %d %d %.4f",
+                atom->tag[ci], atom->tag[di], r);
         error->all(FLERR, str);
       }
 
       n_bad_bond++;
 
-      multiply(bond, 1/r, bondDir);
+      multiply(bond, 1.0 / r, bondDir);
       double vcore_bond_scalar = dot(v[ci], bondDir);
       double vdrude_bond_scalar = dot(v[di], bondDir);
       double vcom_bond_scalar = (mass_core * vcore_bond_scalar + mass_drude * vdrude_bond_scalar) / mass_com;
 
-      double vcore_bond[3], vdrude_bond[3], vcore_normal[3], vdrude_normal[3];
       for (int k = 0; k < 3; k++) {
         vcore_bond[k] = bondDir[k] * vcore_bond_scalar;
         vdrude_bond[k] = bondDir[k] * vdrude_bond_scalar;
@@ -145,12 +146,11 @@ void FixDrudeHardwall::post_integrate() {
       vcore_bond_scalar += vcom_bond_scalar;
       vdrude_bond_scalar += vcom_bond_scalar;
       for (int k = 0; k < 3; k++) {
-        v[ci][k] += bondDir[k] * vcore_bond_scalar + vcore_normal[k];
-        v[di][k] += bondDir[k] * vdrude_bond_scalar + vdrude_normal[k];
+        v[ci][k] = bondDir[k] * vcore_bond_scalar + vcore_normal[k];
+        v[di][k] = bondDir[k] * vdrude_bond_scalar + vdrude_normal[k];
       }
       // since hard wall is a remedy for rare event, the contribution to Virial is ignored
     }
-  }
 }
 
 double FixDrudeHardwall::compute_scalar()
