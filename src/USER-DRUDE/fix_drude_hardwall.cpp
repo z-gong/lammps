@@ -114,9 +114,10 @@ void FixDrudeHardwall::post_integrate() {
 
       n_bad_bond++;
 
-      double vcore_bond_scalar = dot(v[ci], bond) / r;
-      double vdrude_bond_scalar = dot(v[di], bond) / r;
-      double vcom_bond_scalr = (mass_core * vcore_bond_scalar + mass_drude * vdrude_bond_scalar) / mass_com;
+      multiply(bond, 1/r, bondDir);
+      double vcore_bond_scalar = dot(v[ci], bondDir);
+      double vdrude_bond_scalar = dot(v[di], bondDir);
+      double vcom_bond_scalar = (mass_core * vcore_bond_scalar + mass_drude * vdrude_bond_scalar) / mass_com;
 
       double vcore_bond[3], vdrude_bond[3], vcore_normal[3], vdrude_normal[3];
       for (int k = 0; k < 3; k++) {
@@ -126,14 +127,16 @@ void FixDrudeHardwall::post_integrate() {
         vdrude_normal[k] = v[di][k] - vdrude_bond[k];
       }
 
-      double scale = sqrt(force->boltz * t_drude / mass_drude);
-      vcore_bond_scalar -= vcom_bond_scalr;
-      vdrude_bond_scalar -= vcom_bond_scalr;
-      vcore_bond_scalar = -vcore_bond_scalar * mass_drude / abs(vcore_bond_scalar) / mass_com * scale;
-      vdrude_bond_scalar = -vdrude_bond_scalar * mass_core / abs(vdrude_bond_scalar) / mass_com * scale;
+      double scale = sqrt(force->boltz * t_drude / mass_drude / force->mvv2e);
+      vcore_bond_scalar -= vcom_bond_scalar;
+      vdrude_bond_scalar -= vcom_bond_scalar;
 
       double deltaR = r - limit;
       double dt = deltaR / abs(vdrude_bond_scalar - vcore_bond_scalar);
+
+      vcore_bond_scalar = -vcore_bond_scalar * mass_drude / abs(vcore_bond_scalar) / mass_com * scale;
+      vdrude_bond_scalar = -vdrude_bond_scalar * mass_core / abs(vdrude_bond_scalar) / mass_com * scale;
+
       double dr_core_scalar = deltaR * mass_drude / mass_com + dt * vcore_bond_scalar;
       double dr_drude_scalar = -deltaR * mass_core / mass_com + dt * vdrude_bond_scalar;
       for (int k = 0; k < 3; k++) {
@@ -141,8 +144,8 @@ void FixDrudeHardwall::post_integrate() {
         x[di][k] += bondDir[k] * dr_drude_scalar;
       }
 
-      vcore_bond_scalar += vcom_bond_scalr;
-      vdrude_bond_scalar += vcom_bond_scalr;
+      vcore_bond_scalar += vcom_bond_scalar;
+      vdrude_bond_scalar += vcom_bond_scalar;
       for (int k = 0; k < 3; k++) {
         v[ci][k] += bondDir[k] * vcore_bond_scalar + vcore_normal[k];
         v[di][k] += bondDir[k] * vdrude_bond_scalar + vdrude_normal[k];

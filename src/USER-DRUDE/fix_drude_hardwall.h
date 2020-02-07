@@ -38,23 +38,23 @@ class FixDrudeHardwall : public Fix {
 
   class FixDrude * fix_drude;
 
-  static inline double dot(const double *v1, const double *v2) {
-    return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+  static inline double dot(const double *a, const double *b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   }
 
-  static inline void add(const double *v1, const double *v2, double *result) {
+  static inline void add(const double *a, const double *b, double *result) {
     for (int k = 0; k < 3; k++)
-      result[k] = v1[k] + v2[k];
+      result[k] = a[k] + b[k];
   }
 
-  static inline void subtract(const double *v1, const double *v2, double *result) {
+  static inline void subtract(const double *a, const double *b, double *result) {
     for (int k = 0; k < 3; k++)
-      result[k] = v1[k] - v2[k];
+      result[k] = a[k] - b[k];
   }
 
-  static inline void multiply(const double *v1, const double times, double *result) {
+  static inline void multiply(const double *v, const double times, double *result) {
     for (int k = 0; k < 3; k++)
-      result[k] = v1[k] * times;
+      result[k] = v[k] * times;
   }
 
 };
