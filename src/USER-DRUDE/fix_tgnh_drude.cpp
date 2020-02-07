@@ -1605,7 +1605,9 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
   int imol, ci, di;
   double mass_com, mass_reduced, mass_core, mass_drude;
   double vint, vcom, vrel;
-  double ke2_int_tmp = 0, ke2_drude_tmp = 0;
+  // use array instead of two numbers to save MPI_Allreduce()
+  double ke2_int_drude_tmp[2] = {0.0, 0.0};
+  double ke2_int_drude[2];
 
   memset(*v_mol_tmp, 0, sizeof(double) * (n_mol + 1) * 3); // the length of v_mol is n_mol+1
 
@@ -1640,28 +1642,29 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
       if (drudetype[type[i]] == NOPOL_TYPE) {
         for (int k = 0; k < 3; k++) {
           vint = v[i][k] - v_mol[imol][k];
-          ke2_int_tmp += mass[type[i]] * vint * vint;
+          ke2_int_drude_tmp[0] += mass[type[i]] * vint * vint;
         }
       } else if (drudetype[type[i]] == CORE_TYPE) {
-        di = atom->map(drudeid[i]);
-        mass_core = mass[type[i]];
+        ci = i;
+        // do not have to use closet_image() because all images have the same velocity and it's read-only
+        di = atom->map(drudeid[ci]);
+        mass_core = mass[type[ci]];
         mass_drude = mass[type[di]];
         mass_com = mass_core + mass_drude;
         mass_reduced = mass_core * mass_drude / mass_com;
         for (int k = 0; k < 3; k++) {
-          vcom = (mass_core * v[i][k] + mass_drude * v[di][k]) / mass_com;
+          vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
           vint = vcom - v_mol[imol][k];
-          ke2_int_tmp += mass_com * vint * vint;
-          vrel = v[di][k] - v[i][k];
-          ke2_drude_tmp += mass_reduced * vrel * vrel;
+          ke2_int_drude_tmp[0] += mass_com * vint * vint;
+          vrel = v[di][k] - v[ci][k];
+          ke2_int_drude_tmp[1] += mass_reduced * vrel * vrel;
         }
       }
     }
   }
-  MPI_Allreduce(&ke2_int_tmp, &ke2int, 1, MPI_DOUBLE, MPI_SUM, world);
-  MPI_Allreduce(&ke2_drude_tmp, &ke2drude, 1, MPI_DOUBLE, MPI_SUM, world);
-  ke2int *= force->mvv2e;
-  ke2drude *= force->mvv2e;
+  MPI_Allreduce(ke2_int_drude_tmp, ke2_int_drude, 2, MPI_DOUBLE, MPI_SUM, world);
+  ke2int = ke2_int_drude[0] * force->mvv2e;
+  ke2drude = ke2_int_drude[1] * force->mvv2e;
   t_int = ke2int / dof_int / boltz;
   t_drude = ke2drude / dof_drude / boltz;
 }
@@ -1983,13 +1986,8 @@ void FixTGNHDrude::nh_v_temp()
           temperature->restore_bias(i, v[i]);
       } else if (drudetype[type[i]] == CORE_TYPE) {
         ci = i;
-        di = atom->map(drudeid[i]);
-        if (di == -1) {
-          char buffer[1024];
-          sprintf(buffer, "Drude atom %i and core atom %i are not in the same processor",
-                  atom->tag[i], drudeid[i]);
-          error->all(FLERR, buffer);
-        }
+        // have to use closest_image() because we are manipulating the velocity
+        di = domain->closest_image(ci, atom->map(drudeid[i]));
         if (which == BIAS) {
           temperature->remove_bias(ci, v[ci]);
           temperature->remove_bias(di, v[di]);
