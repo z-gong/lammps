@@ -93,9 +93,17 @@ void FixHardwallDrude::post_integrate() {
 
   n_bad_bond = 0;
   for (int i = 0; i < atom->nlocal; i++)
-    if ((mask[i] & groupbit) && drudetype[type[i]] == CORE_TYPE) {
-      ci = i;
-      di = domain->closest_image(ci, atom->map(drudeid[ci]));
+    if (mask[i] & groupbit && drudetype[type[i]] != NOPOL_TYPE) {
+      int j = domain->closest_image(i, atom->map(drudeid[i]));
+      if (drudetype[type[i]] == DRUDE_TYPE && j < atom->nlocal)
+        continue;
+      if (drudetype[type[i]] == CORE_TYPE) {
+        ci = i;
+        di = j;
+      } else {
+        ci = j;
+        di = i;
+      }
       mass_core = mass[type[ci]];
       mass_drude = mass[type[di]];
       mass_com = mass_core + mass_drude;
