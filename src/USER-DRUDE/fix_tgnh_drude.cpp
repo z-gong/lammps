@@ -1964,17 +1964,18 @@ void FixTGNHDrude::nh_v_temp()
   int *drudetype = fix_drude->drudetype;
   int *drudeid = fix_drude->drudeid;
 
-  int imol, ci, di;
+  int imol, i, j, ci, di, itype;
   double mass_com, mass_core, mass_drude;
   double vint, vcom, vrel;
 
   /* If there are velocity bias, need to remove them before scale velocity
    * Have to call remove_bias at the innermost loop, because drude atom may be a ghost
    */
-  for (int i = 0; i < atom->nlocal; i++) {
+  for (i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
       imol = molecule[i];
-      if (drudetype[type[i]] == NOPOL_TYPE) {
+      itype = drudetype[type[i]];
+      if ( itype == NOPOL_TYPE) {
         if (which == BIAS)
           temperature->remove_bias(i, v[i]);
         for (int k = 0; k < 3; k++) {
@@ -1984,10 +1985,17 @@ void FixTGNHDrude::nh_v_temp()
         }
         if (which == BIAS)
           temperature->restore_bias(i, v[i]);
-      } else if (drudetype[type[i]] == CORE_TYPE) {
-        ci = i;
+      } else {
         // have to use closest_image() because we are manipulating the velocity
-        di = domain->closest_image(ci, atom->map(drudeid[i]));
+        j = domain->closest_image(i, atom->map(drudeid[i]));
+        if (itype == DRUDE_TYPE && j < atom->nlocal) continue;
+        if (itype == CORE_TYPE) {
+          ci = i;
+          di = j;
+        } else {
+          ci = j;
+          di = i;
+        }
         if (which == BIAS) {
           temperature->remove_bias(ci, v[ci]);
           temperature->remove_bias(di, v[di]);
