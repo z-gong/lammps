@@ -160,7 +160,7 @@ void FixImageCharge::assign_img_charges() {
   MPI_Allreduce(charge_local, charge, atom->natoms + 1, MPI_DOUBLE, MPI_SUM, world);
 
   // update the charge of image particles based on their parents
-  for (int ii = 0; ii < atom->nlocal; ii++) {
+  for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
     tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
@@ -199,7 +199,7 @@ void FixImageCharge::update_img_positions() {
   MPI_Allreduce(*xyz_local, *xyz, (atom->natoms + 1) * 3, MPI_DOUBLE, MPI_SUM, world);
 
   // update the xyz of image particles
-  for (int ii = 0; ii < atom->nlocal; ii++) {
+  for (int ii = 0; ii < atom->nlocal + atom->nghost; ii++) {
     tag = atom->tag[ii];
     tag_parent = img_parent[tag];
     if (tag_parent != -1) {
