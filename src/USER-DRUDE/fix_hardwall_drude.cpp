@@ -86,18 +86,18 @@ void FixHardwallDrude::post_integrate() {
   int *drudetype = fix_drude->drudetype;
   tagint *drudeid = fix_drude->drudeid;
 
-  int ci, di;
+  int i, j, itype, ci, di;
   double mass_com, mass_core, mass_drude;
   double bond[3], bondDir[3];
   double vcore_bond[3], vdrude_bond[3], vcore_normal[3], vdrude_normal[3];
 
   n_bad_bond = 0;
-  for (int i = 0; i < atom->nlocal; i++)
-    if (mask[i] & groupbit && drudetype[type[i]] != NOPOL_TYPE) {
-      int j = domain->closest_image(i, atom->map(drudeid[i]));
-      if (drudetype[type[i]] == DRUDE_TYPE && j < atom->nlocal)
-        continue;
-      if (drudetype[type[i]] == CORE_TYPE) {
+  for (i = 0; i < atom->nlocal; i++) {
+    itype = drudetype[type[i]];
+    if (mask[i] & groupbit && itype != NOPOL_TYPE) {
+      j = domain->closest_image(i, atom->map(drudeid[i]));
+      if (itype == DRUDE_TYPE && j < atom->nlocal) continue;
+      if (itype == CORE_TYPE) {
         ci = i;
         di = j;
       } else {
@@ -140,14 +140,14 @@ void FixHardwallDrude::post_integrate() {
       double deltaR = r - limit;
       double dt = update->dt;
       if (vdrude_bond_scalar != vcore_bond_scalar)
-        dt = std::min(dt, deltaR / std::abs(vdrude_bond_scalar - vcore_bond_scalar));
+        dt = std::min(dt, deltaR / std::fabs(vdrude_bond_scalar - vcore_bond_scalar));
       double scale = sqrt(force->boltz * t_drude / mass_drude / force->mvv2e);
 
       vcore_bond_scalar -= vcom_bond_scalar;
       vdrude_bond_scalar -= vcom_bond_scalar;
 
-      vcore_bond_scalar = -vcore_bond_scalar * mass_drude / std::abs(vcore_bond_scalar) / mass_com * scale;
-      vdrude_bond_scalar = -vdrude_bond_scalar * mass_core / std::abs(vdrude_bond_scalar) / mass_com * scale;
+      vcore_bond_scalar = -vcore_bond_scalar * mass_drude / std::fabs(vcore_bond_scalar) / mass_com * scale;
+      vdrude_bond_scalar = -vdrude_bond_scalar * mass_core / std::fabs(vdrude_bond_scalar) / mass_com * scale;
 
       double dr_core_scalar = deltaR * mass_drude / mass_com + dt * vcore_bond_scalar;
       double dr_drude_scalar = -deltaR * mass_core / mass_com + dt * vdrude_bond_scalar;
@@ -164,6 +164,7 @@ void FixHardwallDrude::post_integrate() {
       }
       // since hard wall is a remedy for rare event, the contribution to Virial is ignored
     }
+  }
 }
 
 double FixHardwallDrude::compute_scalar()
