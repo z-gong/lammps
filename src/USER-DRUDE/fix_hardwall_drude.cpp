@@ -117,7 +117,7 @@ void FixHardwallDrude::post_integrate() {
         char str[1024];
         sprintf(str, "Distance of Drude pair exceeds twice the hardwall limit: %d %d %.4f",
                 atom->tag[ci], atom->tag[di], r);
-        error->all(FLERR, str);
+        error->one(FLERR, str);
       }
 
       n_bad_bond++;
