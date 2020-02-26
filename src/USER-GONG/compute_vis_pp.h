@@ -44,7 +44,6 @@ class ComputeVisPP : public Compute {
     double tfactor;
 
     double V;
-    double m;
 
     void calc_V();
 

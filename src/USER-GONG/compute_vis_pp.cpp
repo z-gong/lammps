@@ -21,8 +21,10 @@
 #include "comm.h"
 #include "group.h"
 #include "error.h"
+#include "math_const.h"
 
 using namespace LAMMPS_NS;
+using namespace MathConst;
 
 /* ---------------------------------------------------------------------- */
 
@@ -89,21 +91,20 @@ void ComputeVisPP::calc_V()
 
   double massone;
 
-  double total_V = 0;
-  double total_m = 0;
+  double V_m[2];
+  double V_m_local[2] = {0, 0};
 
-    for (int i = 0; i < nlocal; i++)
-      if (mask[i] & groupbit){
-        if (rmass) massone = rmass[i];
-        else massone = mass[type[i]];
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      if (rmass) massone = rmass[i];
+      else massone = mass[type[i]];
 
-        total_V += 2 * massone * v[i][0] * cos(2*3.1415926535*(x[i][2]-zlo)/(zhi-zlo));
-        total_m += massone;
-      }
+      V_m_local[0] += 2 * massone * v[i][0] * cos(MY_2PI * (x[i][2] - zlo) / (zhi - zlo));
+      V_m_local[1] += massone;
+    }
 
-  MPI_Allreduce(&total_V,&V,1,MPI_DOUBLE,MPI_SUM,world);
-  MPI_Allreduce(&total_m,&m,1,MPI_DOUBLE,MPI_SUM,world);
-  V = V/m;
+  MPI_Allreduce(V_m_local, V_m, 2, MPI_DOUBLE, MPI_SUM, world);
+  V = V_m[0] / V_m[1];
 }
 /* ---------------------------------------------------------------------- */
 
@@ -133,7 +134,7 @@ double ComputeVisPP::compute_scalar()
       if (rmass) massone = rmass[i];
       else massone = mass[type[i]];
 
-      vx_acc = V * cos(2 * 3.1415926535 * (x[i][2] - zlo) / (zhi - zlo));
+      vx_acc = V * cos(MY_2PI * (x[i][2] - zlo) / (zhi - zlo));
       t += ((v[i][0] - vx_acc) * (v[i][0] - vx_acc) + v[i][1] * v[i][1] + v[i][2] * v[i][2]) * massone;
     }
 
@@ -174,7 +175,7 @@ void ComputeVisPP::compute_vector()
       if (rmass) massone = rmass[i];
       else massone = mass[type[i]];
 
-      vx_acc = V * cos(2*3.1415926535*(x[i][2]-zlo)/(zhi-zlo));
+      vx_acc = V * cos(MY_2PI*(x[i][2]-zlo)/(zhi-zlo));
       t[0] += massone * (v[i][0]-vx_acc)*(v[i][0]-vx_acc);
       t[1] += massone * v[i][1]*v[i][1];
       t[2] += massone * v[i][2]*v[i][2];
@@ -201,7 +202,7 @@ void ComputeVisPP::remove_bias(int i, double *v)
 
   double **x = atom->x;
 
-  vbias[0] = V * cos(2*3.1415926535*(x[i][2]-zlo)/(zhi-zlo));
+  vbias[0] = V * cos(MY_2PI*(x[i][2]-zlo)/(zhi-zlo));
   vbias[1] = 0;
   vbias[2] = 0;
   v[0] -= vbias[0];
@@ -220,7 +221,7 @@ void ComputeVisPP::remove_bias_thr(int i, double *v, double *b)
 
   double **x = atom->x;
 
-  b[0] = V * cos(2*3.1415926535*(x[i][2]-zlo)/(zhi-zlo));
+  b[0] = V * cos(MY_2PI*(x[i][2]-zlo)/(zhi-zlo));
   b[1] = 0;
   b[2] = 0;
   v[0] -= b[0];
@@ -244,7 +245,7 @@ void ComputeVisPP::remove_bias_all()
 
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      vbiasall[i][0] = V * cos(2*3.1415926535*(x[i][2]-zlo)/(zhi-zlo));
+      vbiasall[i][0] = V * cos(MY_2PI*(x[i][2]-zlo)/(zhi-zlo));
       vbiasall[i][1] = 0;
       vbiasall[i][2] = 0;
       v[i][0] -= vbiasall[i][0];

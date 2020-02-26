@@ -31,24 +31,10 @@ class FixVisPP: public Fix {
   int setmask();
   virtual void init();
   void setup(int);
-  void min_setup(int);
   virtual void post_force(int);
-  void post_force_respa(int, int, int);
-  void min_post_force(int);
-  double compute_vector(int);
-
-  double memory_usage();
 
  protected:
-  double xvalue;
-  int varflag,iregion;
-  char *xstr,*ystr,*zstr;
-  char *idregion;
-  int xvar,yvar,zvar,xstyle,ystyle,zstyle;
-  int nlevels_respa,ilevel_respa;
-
-  int maxatom;
-  double **sforce;
+  double acceleration;
 };
 
 }
