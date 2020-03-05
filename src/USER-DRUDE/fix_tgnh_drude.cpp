@@ -733,7 +733,7 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   memory->create(v_mol_tmp, n_mol + 1, 3, "fix_tgnh_drude::v_mol_tmp");
   memory->create(mass_mol, n_mol + 1, "fix_tgnh_drude::mass_mol");
 
-  auto *mass_tmp = new double[n_mol + 1];
+  double *mass_tmp = new double[n_mol + 1];
   memset(mass_tmp, 0, sizeof(double) * (n_mol + 1));
   for (int i = 0; i < atom->nlocal; i++) {
     id_mol = molecule[i];
@@ -745,8 +745,9 @@ void FixTGNHDrude::setup_mol_mass_dof() {
   t_current = temperature->compute_scalar();
   _tdof = temperature->dof;
   dof_mol = 3 * n_mol_in_group;
+  // remove DOFs of COM motion based on the number of atoms in the group
   if (n_mol_in_group > 1)
-    dof_mol -= 3; // remove DOFs of COM motion of the whole system
+    dof_mol -= ((double) 3) * group->count(igroup) / atom->natoms;
   dof_drude = 3 * n_drude;
   dof_int = _tdof - dof_mol - dof_drude;
 
@@ -1605,10 +1606,15 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
   int imol, ci, di;
   double mass_com, mass_reduced, mass_core, mass_drude;
   double vint, vcom, vrel;
-  double ke2_int_tmp = 0, ke2_drude_tmp = 0;
+  // use array instead of two numbers to save MPI_Allreduce()
+  double ke2_int_drude_tmp[2] = {0.0, 0.0};
+  double ke2_int_drude[2];
 
   memset(*v_mol_tmp, 0, sizeof(double) * (n_mol + 1) * 3); // the length of v_mol is n_mol+1
 
+  /**
+   * If there are velocity bias, need to remove them before calculate kinetic energies
+   */
   for (int i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
       if (which == BIAS)
@@ -1634,34 +1640,54 @@ void FixTGNHDrude::compute_temp_mol_int_drude() {
   ke2mol *= force->mvv2e;
   t_mol = ke2mol / dof_mol / boltz;
 
+  /**
+   * Have to call remove_bias at the innermost loop, because drude atom may be a ghost
+   */
   for (int i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
       imol = molecule[i];
       if (drudetype[type[i]] == NOPOL_TYPE) {
+        if (which == BIAS)
+          temperature->remove_bias(i, v[i]);
         for (int k = 0; k < 3; k++) {
           vint = v[i][k] - v_mol[imol][k];
-          ke2_int_tmp += mass[type[i]] * vint * vint;
+          ke2_int_drude_tmp[0] += mass[type[i]] * vint * vint;
         }
+        if (which == BIAS)
+          temperature->restore_bias(i, v[i]);
       } else if (drudetype[type[i]] == CORE_TYPE) {
-        di = atom->map(drudeid[i]);
-        mass_core = mass[type[i]];
+        /**
+         * have to use closet_image()
+         * even though all images have the same velocity and it's sort of read-only
+         * but the bias velocity may depends on it's position like in compute vis/pp
+         */
+        ci = i;
+        di = domain->closest_image(i, atom->map(drudeid[i]));
+        if (which == BIAS) {
+          temperature->remove_bias(ci, v[ci]);
+          temperature->remove_bias(di, v[di]);
+        }
+        mass_core = mass[type[ci]];
         mass_drude = mass[type[di]];
         mass_com = mass_core + mass_drude;
         mass_reduced = mass_core * mass_drude / mass_com;
         for (int k = 0; k < 3; k++) {
-          vcom = (mass_core * v[i][k] + mass_drude * v[di][k]) / mass_com;
+          vcom = (mass_core * v[ci][k] + mass_drude * v[di][k]) / mass_com;
           vint = vcom - v_mol[imol][k];
-          ke2_int_tmp += mass_com * vint * vint;
-          vrel = v[di][k] - v[i][k];
-          ke2_drude_tmp += mass_reduced * vrel * vrel;
+          ke2_int_drude_tmp[0] += mass_com * vint * vint;
+          vrel = v[di][k] - v[ci][k];
+          ke2_int_drude_tmp[1] += mass_reduced * vrel * vrel;
+        }
+        if (which == BIAS) {
+          temperature->restore_bias(ci, v[ci]);
+          temperature->restore_bias(di, v[di]);
         }
       }
     }
   }
-  MPI_Allreduce(&ke2_int_tmp, &ke2int, 1, MPI_DOUBLE, MPI_SUM, world);
-  MPI_Allreduce(&ke2_drude_tmp, &ke2drude, 1, MPI_DOUBLE, MPI_SUM, world);
-  ke2int *= force->mvv2e;
-  ke2drude *= force->mvv2e;
+  MPI_Allreduce(ke2_int_drude_tmp, ke2_int_drude, 2, MPI_DOUBLE, MPI_SUM, world);
+  ke2int = ke2_int_drude[0] * force->mvv2e;
+  ke2drude = ke2_int_drude[1] * force->mvv2e;
   t_int = ke2int / dof_int / boltz;
   t_drude = ke2drude / dof_drude / boltz;
 }
@@ -1961,17 +1987,19 @@ void FixTGNHDrude::nh_v_temp()
   int *drudetype = fix_drude->drudetype;
   int *drudeid = fix_drude->drudeid;
 
-  int imol, ci, di;
+  int imol, i, j, ci, di, itype;
   double mass_com, mass_core, mass_drude;
   double vint, vcom, vrel;
 
-  /* If there are velocity bias, need to remove them before scale velocity
+  /**
+   * If there are velocity bias, need to remove them before scale velocity
    * Have to call remove_bias at the innermost loop, because drude atom may be a ghost
    */
-  for (int i = 0; i < atom->nlocal; i++) {
+  for (i = 0; i < atom->nlocal; i++) {
     if (mask[i] & groupbit) {
       imol = molecule[i];
-      if (drudetype[type[i]] == NOPOL_TYPE) {
+      itype = drudetype[type[i]];
+      if (itype == NOPOL_TYPE) {
         if (which == BIAS)
           temperature->remove_bias(i, v[i]);
         for (int k = 0; k < 3; k++) {
@@ -1981,14 +2009,16 @@ void FixTGNHDrude::nh_v_temp()
         }
         if (which == BIAS)
           temperature->restore_bias(i, v[i]);
-      } else if (drudetype[type[i]] == CORE_TYPE) {
-        ci = i;
-        di = atom->map(drudeid[i]);
-        if (di == -1) {
-          char buffer[1024];
-          sprintf(buffer, "Drude atom %i and core atom %i are not in the same processor",
-                  atom->tag[i], drudeid[i]);
-          error->all(FLERR, buffer);
+      } else {
+        // have to use closest_image() because we are manipulating the velocity
+        j = domain->closest_image(i, atom->map(drudeid[i]));
+        if (itype == DRUDE_TYPE && j < atom->nlocal) continue;
+        if (itype == CORE_TYPE) {
+          ci = i;
+          di = j;
+        } else {
+          ci = j;
+          di = i;
         }
         if (which == BIAS) {
           temperature->remove_bias(ci, v[ci]);
