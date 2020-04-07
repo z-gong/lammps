@@ -11,43 +11,45 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------
+   Contributing author: Zheng GONG (ENS Lyon)
+------------------------------------------------------------------------- */
+
 #ifdef COMPUTE_CLASS
 
-ComputeStyle(vis/pp,ComputeVisPP)
+ComputeStyle(viscosity/cos,ComputeViscosityCos)
 
 #else
 
-#ifndef LMP_COMPUTE_VIS_PP_H
-#define LMP_COMPUTE_VIS_PP_H
+#ifndef LMP_COMPUTE_VISCOSITY_COS_H
+#define LMP_COMPUTE_VISCOSITY_COS_H
 
 #include "compute.h"
 
 namespace LAMMPS_NS {
 
-class ComputeVisPP : public Compute {
+class ComputeViscosityCos : public Compute {
  public:
-  ComputeVisPP(class LAMMPS *, int, char **);
-  virtual ~ComputeVisPP();
+  ComputeViscosityCos(class LAMMPS *, int, char **);
+  virtual ~ComputeViscosityCos();
   void init() {}
   void setup();
   virtual double compute_scalar();
   virtual void compute_vector();
 
-    void remove_bias(int, double *);
-    void remove_bias_thr(int, double *, double *);
-    void remove_bias_all();
-    void restore_bias(int, double *);
-    void restore_bias_thr(int, double *, double *);
-    void restore_bias_all();
+  void remove_bias(int, double *);
+  void remove_bias_thr(int, double *, double *);
+  void remove_bias_all();
+  void restore_bias(int, double *);
+  void restore_bias_thr(int, double *, double *);
+  void restore_bias_all();
 
  protected:
-    double tfactor;
+  double tfactor;
+  double V;
 
-    double V;
-
-    void calc_V();
-
-    virtual void dof_compute();
+  void dof_compute();
+  void calc_V();
 };
 
 }

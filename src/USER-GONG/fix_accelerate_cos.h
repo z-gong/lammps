@@ -11,23 +11,27 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------
+   Contributing author: Zheng GONG (ENS Lyon)
+------------------------------------------------------------------------- */
+
 #ifdef FIX_CLASS
 
-FixStyle(vis/pp,FixVisPP)
+FixStyle(accelerate/cos,FixAccelerateCos)
 
 #else
 
-#ifndef LMP_FIX_VIS_PP_H
-#define LMP_FIX_VIS_PP_H
+#ifndef LMP_FIX_ACCELERATE_COS_H
+#define LMP_FIX_ACCELERATE_COS_H
 
 #include "fix.h"
 
 namespace LAMMPS_NS {
 
-class FixVisPP: public Fix {
+class FixAccelerateCos: public Fix {
  public:
-  FixVisPP(class LAMMPS *, int, char **);
-  virtual ~FixVisPP();
+  FixAccelerateCos(class LAMMPS *, int, char **);
+  virtual ~FixAccelerateCos();
   int setmask();
   virtual void init();
   void setup(int);
